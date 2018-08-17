@@ -115,8 +115,6 @@ class Trainer(ABC):
             self.monitor.mutual_info.prepare(eval_loader)
         self.monitor.set_watch_mode(watch_parameters)
 
-        self.monitor.start_training(self.model)
-
         for epoch in range(n_epoch):
             labels, outputs, loss = None, None, None
             for images, labels in tqdm(self.train_loader,

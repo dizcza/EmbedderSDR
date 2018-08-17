@@ -1,5 +1,6 @@
 import time
 from collections import UserDict
+from functools import wraps
 from typing import Callable
 
 import torch
@@ -15,6 +16,10 @@ from utils import factors_root
 
 
 def timer_profile(func):
+    """
+    For debug purposes only.
+    """
+    @wraps(func)
     def wrapped(*args, **kwargs):
         start = time.time()
         res = func(*args, **kwargs)
@@ -146,12 +151,8 @@ class Monitor(object):
         self.param_records.batch_finished()
         self.timer.tick()
         if self.timer.epoch == 0:
-            self.mutual_info.update(model)
+            self.mutual_info.force_update(model)
             self.mutual_info.plot(self.viz)
-
-    def start_training(self, model: nn.Module):
-        self.mutual_info.update(model)
-        self.mutual_info.plot(self.viz)
 
     def update_loss(self, loss: float, mode='batch'):
         self.viz.line_update(loss, win=f'loss', opts=dict(

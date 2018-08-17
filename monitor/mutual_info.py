@@ -1,7 +1,8 @@
+import concurrent.futures
 import math
 from abc import ABC, abstractmethod
-from collections import defaultdict
-from concurrent.futures import ProcessPoolExecutor
+from collections import defaultdict, namedtuple
+from functools import wraps
 from typing import Callable, List
 
 import numpy as np
@@ -14,10 +15,13 @@ from sklearn.metrics import mutual_info_score
 from monitor.batch_timer import Schedule
 from monitor.viz import VisdomMighty
 
+LayerForward = namedtuple("LayerForward", ("layer", "forward_orig"))
 
-class MutualInfo(ABC):
+
+class MutualInfoBin(ABC):
 
     log2e = math.log2(math.e)
+    n_bins_default = 20
 
     def __init__(self, estimate_size: int = np.inf, compression_range=(0.50, 0.999), debug=False):
         """
@@ -27,7 +31,7 @@ class MutualInfo(ABC):
         self.estimate_size = estimate_size
         self.compression_range = compression_range
         self.debug = debug
-        self.n_bins = defaultdict(int)
+        self.n_bins = {}
         self.max_trials_adjust = 10
         self.layers = {}
         self.activations = defaultdict(list)
@@ -36,39 +40,35 @@ class MutualInfo(ABC):
         self.is_active = False
         self.eval_loader = None
 
-    @property
-    def n_bins_default(self):
-        return 20
-
     def register(self, layer: nn.Module, name: str):
-        # todo namedtuple
-        self.layers[name] = (layer, layer.forward)  # immutable
+        self.layers[name] = LayerForward(layer, layer.forward)
 
-    def update(self, model: nn.Module):
+    def force_update(self, model: nn.Module):
         if self.eval_loader is None:
-            # did you forget to call .prepare()?
             return
         self.start_listening()
         if not self.is_active:
-            # not ready yet
+            # we didn't start listening because timer said we need to wait a few batches/epochs more
             return
         use_cuda = torch.cuda.is_available()
-        for batch_id, (images, labels) in enumerate(iter(self.eval_loader)):
-            if use_cuda:
-                images = images.cuda()
-            model(images)
-            if batch_id * self.eval_loader.batch_size >= self.estimate_size:
-                break
+        with torch.no_grad():
+            for batch_id, (images, labels) in enumerate(iter(self.eval_loader)):
+                if use_cuda:
+                    images = images.cuda()
+                model(images)  # outputs of each layer are saved implicitly
+                if batch_id * self.eval_loader.batch_size >= self.estimate_size:
+                    break
         self.finish_listening()
 
-    def decorate_evaluation(self, func: Callable):
-        def wrapped(*args, **kwargs):
+    def decorate_evaluation(self, get_outputs: Callable):
+        @wraps(get_outputs)
+        def get_outputs_wrapped(*args, **kwargs):
             self.start_listening()
-            res = func(*args, **kwargs)
+            outputs = get_outputs(*args, **kwargs)
             self.finish_listening()
-            return res
-        print(f"Decorated '{func.__name__}' function to save layers' activations for MI estimation")
-        return wrapped
+            return outputs
+        print(f"Decorated '{get_outputs.__name__}' function to save layer activations for MI estimation")
+        return get_outputs_wrapped
 
     def prepare(self, loader: torch.utils.data.DataLoader):
         self.eval_loader = loader
@@ -86,7 +86,7 @@ class MutualInfo(ABC):
     def start_listening(self):
         for name, (layer, forward_orig) in self.layers.items():
             if layer.forward == forward_orig:
-                layer.forward = self.wrap_forward(layer_name=name, forward_orig=forward_orig)
+                layer.forward = self._wrap_forward(layer_name=name, forward_orig=forward_orig)
         self.is_active = True
 
     def finish_listening(self):
@@ -97,23 +97,29 @@ class MutualInfo(ABC):
         self.is_active = False
         self.save_information_async()
 
-    def wrap_forward(self, layer_name, forward_orig):
+    def _wrap_forward(self, layer_name, forward_orig):
         def forward_and_save(input):
-            assert self.is_active, 'Did you forget to start the job?'
+            assert self.is_active, "Did you forget to call MutualInfo.start_listening()?"
             output = forward_orig(input)
             self.save_activations(layer_name, output)
             return output
         return forward_and_save
 
     def save_activations(self, layer_name: str, tensor: torch.Tensor):
-        if sum(map(len, self.activations[layer_name])) < self.estimate_size:
-            self.activations[layer_name].append(tensor.data.cpu().clone())
+        self.activations[layer_name].append(tensor.data.cpu().clone())
 
-    @abstractmethod
-    def process(self, layer_name: str, activations: List[torch.FloatTensor]):
+    def process(self, layer_name: str, activations: List[torch.FloatTensor]) -> np.ndarray:
         activations = torch.cat(activations, dim=0)
         size = min(len(activations), self.estimate_size)
         activations = activations[: size]
+        if layer_name == 'target':
+            assert isinstance(activations, (torch.LongTensor, torch.IntTensor))
+            activations = activations.numpy()
+        else:
+            activations = activations.view(activations.shape[0], -1)
+            if layer_name not in self.n_bins:
+                self.n_bins[layer_name] = self.adjust_bins(layer_name, activations)
+            activations = self.quantize(layer_name, activations, n_bins=self.n_bins[layer_name])
         return activations
 
     def hidden_layer_names(self):
@@ -133,11 +139,7 @@ class MutualInfo(ABC):
                 title=f'{name} MI quantized histogram',
             ))
 
-    @Schedule(epoch_update=1)
     def plot_quantized_dispersion(self, viz: VisdomMighty):
-        if any(n_bins == 0 for n_bins in self.n_bins.values()):
-            # algorithm doesn't use binning
-            return
         legend = []
         for name in self.quantized.keys():
             legend.append(f'{name} ({self.n_bins[name]} bins)')
@@ -162,8 +164,7 @@ class MutualInfo(ABC):
         if self.debug:
             self.plot_quantized_hist(viz)
 
-    def _compute_async(self, args):
-        name, activations = args
+    def _compute_async(self, name, activations):
         quantized = self.process(name, activations)
         info_x = self.compute_mutual_info(self.activations['input'], quantized)
         info_y = self.compute_mutual_info(self.activations['target'], quantized)
@@ -171,20 +172,18 @@ class MutualInfo(ABC):
 
     def save_information_async(self):
         self.quantized = dict(input=self.activations['input'])
-        with ProcessPoolExecutor() as executor:
-            args = [(hname, self.activations.pop(hname)) for hname in self.hidden_layer_names()]
-            for (hname, quantized, info_x, info_y, n_bins) in executor.map(self._compute_async, args):
+        # todo: does it make sense to free memory in the main thread by doing so?
+        named_activations = [(hname, self.activations.pop(hname)) for hname in self.hidden_layer_names()]
+        with concurrent.futures.ProcessPoolExecutor() as executor:
+            futures = []
+            for hname, activations in named_activations:
+                future_scheduled = executor.submit(self._compute_async, name=hname, activations=activations)
+                futures.append(future_scheduled)
+            for future in concurrent.futures.as_completed(futures):
+                hname, quantized, info_x, info_y, n_bins = future.result()
                 self.information[hname] = (info_x, info_y)
                 self.quantized[hname] = quantized
                 self.n_bins[hname] = n_bins
-
-    def save_information(self):
-        self.quantized = dict(input=self.activations['input'])
-        for hname in self.hidden_layer_names():
-            self.quantized[hname] = self.process(hname, self.activations.pop(hname))
-            info_x = self.compute_mutual_info(self.activations['input'], self.quantized[hname])
-            info_y = self.compute_mutual_info(self.activations['target'], self.quantized[hname])
-            self.information[hname] = (info_x, info_y)
 
     def plot(self, viz):
         assert not self.is_active, "Wait, not finished yet."
@@ -194,36 +193,18 @@ class MutualInfo(ABC):
         ys = []
         xs = []
         self.plot_quantized_dispersion(viz)
-        for layer_name, (info_x, info_y) in list(self.information.items()):
+        for layer_name, (info_x, info_y) in tuple(self.information.items()):
             ys.append(info_y)
             xs.append(info_x)
             legend.append(layer_name)
             del self.information[layer_name]
         title = 'Mutual information plane'
-        if len(ys) > 1:
-            ys = [ys]
-            xs = [xs]
-        viz.line(Y=np.array(ys), X=np.array(xs), win=title, opts=dict(
+        viz.line(Y=np.array([ys]), X=np.array([xs]), win=title, opts=dict(
             xlabel='I(X, T), bits',
             ylabel='I(T, Y), bits',
             title=title,
             legend=legend,
         ), update='append' if viz.win_exists(title) else None)
-
-
-class MutualInfoBin(MutualInfo):
-
-    def process(self, layer_name: str, activations: List[torch.FloatTensor]) -> np.ndarray:
-        activations = super().process(layer_name, activations)
-        if layer_name == 'target':
-            assert isinstance(activations, (torch.LongTensor, torch.IntTensor))
-            activations = activations.numpy()
-        else:
-            activations = activations.view(activations.shape[0], -1)
-            if layer_name not in self.n_bins:
-                self.n_bins[layer_name] = self.adjust_bins(layer_name, activations)
-            activations = self.quantize(layer_name, activations, n_bins=self.n_bins[layer_name])
-        return activations
 
     def adjust_bins(self, layer_name: str, activations: torch.FloatTensor) -> int:
         n_bins = self.n_bins_default

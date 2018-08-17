@@ -1,4 +1,5 @@
 import warnings
+from functools import wraps
 from typing import Callable
 
 
@@ -49,6 +50,7 @@ class Schedule(object):
         return False
 
     def __call__(self, func: Callable):
+        @wraps(func)
         def wrapped(*args, **kwargs):
             if not self.initialized:
                 warnings.warn("Timer is not initialized!")
