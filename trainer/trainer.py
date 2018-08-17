@@ -113,8 +113,7 @@ class Trainer(ABC):
             global get_outputs
             get_outputs = self.monitor.mutual_info.decorate_evaluation(get_outputs)
             self.monitor.mutual_info.prepare(eval_loader)
-        if watch_parameters:
-            self.monitor.watch_parameters()
+        self.monitor.set_watch_mode(watch_parameters)
 
         self.monitor.start_training(self.model)
 

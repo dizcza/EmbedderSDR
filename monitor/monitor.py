@@ -31,21 +31,27 @@ class ParamRecord(object):
     def __init__(self, param: nn.Parameter):
         self.param = param
         self.is_monitored = False
-        self.variance = VarianceOnline(tensor=self.param.data.cpu(), is_active=self.is_monitored)
-        self.grad_variance = VarianceOnline(is_active=self.is_monitored)
+        self.variance = None
+        self.grad_variance = None
         self.prev_sign = None
         self.initial_data = None
         self.initial_norm = None
 
-    def watch_parameters(self, mode: bool):
+    def set_watch_mode(self, mode: bool):
         self.is_monitored = mode
         if self.is_monitored:
             data_cpu = self.param.data.cpu()
-            self.variance = VarianceOnline(tensor=data_cpu, is_active=self.is_monitored)
-            self.grad_variance = VarianceOnline(is_active=self.is_monitored)
+            self.variance = VarianceOnline(tensor=data_cpu)
+            self.grad_variance = VarianceOnline()
             self.prev_sign = data_cpu.clone()  # clone is faster
             self.initial_data = data_cpu.clone()
             self.initial_norm = self.initial_data.norm(p=2)
+        else:
+            self.variance = None
+            self.grad_variance = None
+            self.prev_sign = None
+            self.initial_data = None
+            self.initial_norm = None
 
     def tstat(self) -> torch.FloatTensor:
         """
@@ -285,6 +291,6 @@ class Monitor(object):
             heatmap_func = heatmap_by_dim if by_dim and name == name_last else heatmap
             heatmap_func(tensor=param_record.tstat(), win=f'Heatmap {name} t-statistics')
 
-    def watch_parameters(self):
+    def set_watch_mode(self, mode=False):
         for param_record in self.param_records.values():
-            param_record.watch_parameters(True)
+            param_record.set_watch_mode(mode)
