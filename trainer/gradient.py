@@ -27,14 +27,19 @@ class TrainerGrad(Trainer):
                 ytype='log',
             ))
 
+    def log_trainer(self):
+        super().log_trainer()
+        optimizer_str = f"Optimizer {self.optimizer.__class__.__name__}:"
+        for group_id, group in enumerate(self.optimizer.param_groups):
+            optimizer_str += f"\n\tgroup {group_id}: lr={group['lr']}, weight_decay={group['weight_decay']}"
+        self.monitor.log(optimizer_str)
+
     def train_batch(self, images, labels):
         self.optimizer.zero_grad()
         outputs = self.model(images)
         loss = self.criterion(outputs, labels)
         loss.backward()
         self.optimizer.step(closure=None)
-        for name, param in self.model.named_parameters():
-            assert not torch.isnan(param).any(), name
         return outputs, loss
 
     def _epoch_finished(self, epoch, outputs, labels) -> torch.Tensor:

@@ -14,7 +14,7 @@ def train(n_epoch=100):
                                                            threshold=1e-3, min_lr=1e-4)
     trainer = TrainerGrad(model=model, criterion=ContrastiveLabeledLoss(), dataset_name="MNIST56", optimizer=optimizer,
                           scheduler=scheduler)
-    trainer.train(n_epoch=n_epoch, save=False, with_mutual_info=True, epoch_update_step=1)
+    trainer.train(n_epoch=n_epoch, save=False, epoch_update_step=1, with_mutual_info=False, watch_parameters=True)
 
 
 if __name__ == '__main__':

@@ -1,28 +1,38 @@
 import copy
 from abc import ABC, abstractmethod
+import time
 
 import torch
 import torch.nn as nn
 import torch.utils.data
 from tqdm import tqdm
 
-from constants import MODELS_DIR
+from constants import MODELS_DIR, ROOT_DIR
 from monitor.accuracy import calc_accuracy, get_outputs
 from monitor.monitor import Monitor
 from trainer.checkpoint import Checkpoint
 from utils import get_data_loader, load_model_state
+from monitor.batch_timer import timer
 
 
 class Trainer(ABC):
 
-    def __init__(self, model: nn.Module, criterion: nn.Module, dataset_name: str, patience=None, monitor_kwargs=dict()):
+    watch_modules = (nn.Linear, nn.Conv2d)
+
+    def __init__(self, model: nn.Module, criterion: nn.Module, dataset_name: str, patience=None,
+                 project_name=ROOT_DIR.name):
         self.model = model
         self.criterion = criterion
         self.dataset_name = dataset_name
         self.train_loader = get_data_loader(dataset_name, train=True)
-        self.monitor = Monitor(self, **monitor_kwargs)
+        timer.init(batches_in_epoch=len(self.train_loader))
+        env_name = f"{time.strftime('%Y.%m.%d')} {project_name}: {self.dataset_name} {self.__class__.__name__}"
+        self.monitor = Monitor(test_loader=get_data_loader(self.dataset_name, train=False), env_name=env_name)
         self._monitor_parameters(self.model)
         self.checkpoint = Checkpoint(model=self.model, patience=patience)
+
+    def log_trainer(self):
+        self.monitor.log(f"Criterion: {self.criterion}")
 
     def save_model(self, accuracy: float = None):
         model_path = MODELS_DIR.joinpath(self.dataset_name, self.model.__class__.__name__).with_suffix('.pt')
@@ -49,11 +59,18 @@ class Trainer(ABC):
             print(f"Couldn't estimate the best accuracy for {self.model.__class__.__name__}. Reset to 0.")
         return best_accuracy
 
-    def _monitor_parameters(self, model: nn.Module, prefix=''):
-        for name, child in model.named_children():
+    def _monitor_parameters(self, layer: nn.Module, prefix=''):
+        for name, child in layer.named_children():
             self._monitor_parameters(child, prefix=f'{prefix}.{name}')
-        if isinstance(model, (nn.Linear, nn.Conv2d)):
-            self.monitor.register_layer(model, prefix=prefix.lstrip('.'))
+        if isinstance(layer, self.watch_modules):
+            self.monitor.register_layer(layer, prefix=prefix.lstrip('.'))
+
+    def clamp_param(self, layer: nn.Module, a_min=-1, a_max=1):
+        for child in layer.children():
+            self.clamp_param(child, a_min=a_min, a_max=a_max)
+        if isinstance(layer, self.watch_modules):
+            for param in layer.parameters():
+                param.data.clamp_(min=a_min, max=a_max)
 
     @abstractmethod
     def train_batch(self, images, labels):
@@ -65,14 +82,17 @@ class Trainer(ABC):
         self.checkpoint.step(model=self.model, loss=loss)
         return loss
 
-    def train(self, n_epoch=10, save=True, with_mutual_info=False, epoch_update_step=1):
+    def train(self, n_epoch=10, save=True, epoch_update_step=1, with_mutual_info=False, watch_parameters=False):
         """
         :param n_epoch: number of training epochs
         :param save: save the trained model?
-        :param with_mutual_info: plot the mutual information of layer activations?
         :param epoch_update_step: epoch step to run full evaluation
+        :param with_mutual_info: plot the mutual information of layer activations?
+        :param watch_parameters: turn on/off excessive parameters monitoring
         """
         print(self.model)
+        self.monitor.log_model(self.model)
+        self.log_trainer()
         use_cuda = torch.cuda.is_available()
         if use_cuda:
             self.model.cuda()
@@ -93,6 +113,8 @@ class Trainer(ABC):
             global get_outputs
             get_outputs = self.monitor.mutual_info.decorate_evaluation(get_outputs)
             self.monitor.mutual_info.prepare(eval_loader)
+        if watch_parameters:
+            self.monitor.watch_parameters()
 
         self.monitor.start_training(self.model)
 

@@ -1,5 +1,6 @@
 from pathlib import Path
 
-DATA_DIR = Path(__file__).with_name("data")
-MODELS_DIR = DATA_DIR.with_name("models_bin")
-CHECKPOINTS_DIR = MODELS_DIR.with_name("checkpoints")
+ROOT_DIR = Path(__file__).parent
+DATA_DIR = ROOT_DIR / "data"
+MODELS_DIR = ROOT_DIR / "models_bin"
+CHECKPOINTS_DIR = ROOT_DIR / "checkpoints"

@@ -11,7 +11,7 @@ from monitor.batch_timer import timer, Schedule
 from monitor.mutual_info import MutualInfoKMeans
 from monitor.var_online import VarianceOnline
 from monitor.viz import VisdomMighty
-from utils import get_data_loader
+from utils import factors_root
 
 
 def timer_profile(func):
@@ -28,14 +28,23 @@ def timer_profile(func):
 
 
 class ParamRecord(object):
-    def __init__(self, param: nn.Parameter, monitor=False):
+    def __init__(self, param: nn.Parameter):
         self.param = param
-        self.is_monitored = monitor
-        self.variance = VarianceOnline(tensor=param.data.cpu(), is_active=self.is_monitored)
+        self.is_monitored = False
+        self.variance = VarianceOnline(tensor=self.param.data.cpu(), is_active=self.is_monitored)
         self.grad_variance = VarianceOnline(is_active=self.is_monitored)
+        self.prev_sign = None
+        self.initial_data = None
+        self.initial_norm = None
+
+    def watch_parameters(self, mode: bool):
+        self.is_monitored = mode
         if self.is_monitored:
-            self.prev_sign = param.data.cpu().clone()  # clone is faster
-            self.initial_data = param.data.clone()
+            data_cpu = self.param.data.cpu()
+            self.variance = VarianceOnline(tensor=data_cpu, is_active=self.is_monitored)
+            self.grad_variance = VarianceOnline(is_active=self.is_monitored)
+            self.prev_sign = data_cpu.clone()  # clone is faster
+            self.initial_data = data_cpu.clone()
             self.initial_norm = self.initial_data.norm(p=2)
 
     def tstat(self) -> torch.FloatTensor:
@@ -106,31 +115,17 @@ class ParamsDict(UserDict):
 
 class Monitor(object):
 
-    def __init__(self, trainer, watch_parameters=False):
+    def __init__(self, test_loader: torch.utils.data.DataLoader, env_name="main"):
         """
-        :param trainer: Trainer instance
+        :param test_loader: dataloader to test model performance at each epoch_finished() call
+        :param env_name: Visdom environment name
         """
-        self.watch_parameters = watch_parameters
         self.timer = timer
-        self.timer.init(batches_in_epoch=len(trainer.train_loader))
-        self.viz = VisdomMighty(env=f"{time.strftime('%Y-%b-%d')} "
-                                    f"{trainer.dataset_name} "
-                                    f"{trainer.__class__.__name__}", timer=self.timer)
-        self.test_loader = get_data_loader(dataset=trainer.dataset_name, train=False)
+        self.viz = VisdomMighty(env=env_name, timer=self.timer)
+        self.test_loader = test_loader
         self.param_records = ParamsDict()
         self.mutual_info = MutualInfoKMeans(estimate_size=int(1e3), compression_range=(0.5, 0.999))
         self.functions = []
-        self.log_model(trainer.model)
-        self.log_trainer(trainer)
-
-    def log_trainer(self, trainer):
-        self.log(f"Criterion: {trainer.criterion}")
-        optimizer = getattr(trainer, 'optimizer', None)
-        if optimizer is not None:
-            optimizer_str = f"Optimizer {optimizer.__class__.__name__}:"
-            for group_id, group in enumerate(optimizer.param_groups):
-                optimizer_str += f"\n\tgroup {group_id}: lr={group['lr']}, weight_decay={group['weight_decay']}"
-            self.log(optimizer_str)
 
     def log_model(self, model: nn.Module, space='-'):
         for line in repr(model).splitlines():
@@ -219,11 +214,12 @@ class Monitor(object):
         self.update_gradient_mean_std()
         self.update_initial_difference()
         self.update_grad_norm()
+        self.update_heatmap_history(model, by_dim=False)
 
     def register_layer(self, layer: nn.Module, prefix: str):
         self.mutual_info.register(layer, name=prefix)
         for name, param in layer.named_parameters(prefix=prefix):
-            self.param_records[name] = ParamRecord(param, monitor=self.watch_parameters)
+            self.param_records[name] = ParamRecord(param)
 
     def update_initial_difference(self):
         legend = []
@@ -253,3 +249,42 @@ class Monitor(object):
                 ylabel='Gradient norm, L2',
                 title='Average grad norm of all params',
             ))
+
+    def update_heatmap_history(self, model: nn.Module, by_dim=False):
+        """
+        :param model: current model
+        :param by_dim: use hitmap_by_dim for the last layer's weights
+        """
+        def heatmap(tensor: torch.FloatTensor, win: str):
+            while tensor.dim() > 2:
+                tensor = tensor.mean(dim=0)
+            opts = dict(
+                colormap='Jet',
+                title=win,
+                xlabel='input dimension',
+                ylabel='output dimension',
+            )
+            if tensor.shape[0] <= 10:
+                opts.update(ytickstep=1)
+            self.viz.heatmap(X=tensor, win=win, opts=opts)
+
+        def heatmap_by_dim(tensor: torch.FloatTensor, win: str):
+            for dim, x_dim in enumerate(tensor):
+                factors = factors_root(x_dim.shape[0])
+                x_dim = x_dim.view(factors)
+                heatmap(x_dim, win=f'{win}: dim {dim}')
+
+        names_backward = list(name for name, _ in model.named_parameters())[::-1]
+        name_last = None
+        for name in names_backward:
+            if name in self.param_records:
+                name_last = name
+                break
+
+        for name, param_record in self.param_records.items_monitored():
+            heatmap_func = heatmap_by_dim if by_dim and name == name_last else heatmap
+            heatmap_func(tensor=param_record.tstat(), win=f'Heatmap {name} t-statistics')
+
+    def watch_parameters(self):
+        for param_record in self.param_records.values():
+            param_record.watch_parameters(True)

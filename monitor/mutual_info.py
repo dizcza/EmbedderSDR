@@ -41,6 +41,7 @@ class MutualInfo(ABC):
         return 20
 
     def register(self, layer: nn.Module, name: str):
+        # todo namedtuple
         self.layers[name] = (layer, layer.forward)  # immutable
 
     def update(self, model: nn.Module):
