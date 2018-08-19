@@ -1,4 +1,3 @@
-import concurrent.futures
 import math
 from abc import ABC, abstractmethod
 from collections import defaultdict, namedtuple
@@ -95,7 +94,7 @@ class MutualInfoBin(ABC):
         for name, (layer, forward_orig) in self.layers.items():
             layer.forward = forward_orig
         self.is_active = False
-        self.save_information_async()
+        self.save_information()
 
     def _wrap_forward(self, layer_name, forward_orig):
         def forward_and_save(input):
@@ -164,26 +163,14 @@ class MutualInfoBin(ABC):
         if self.debug:
             self.plot_quantized_hist(viz)
 
-    def _compute_async(self, name, activations):
-        quantized = self.process(name, activations)
-        info_x = self.compute_mutual_info(self.activations['input'], quantized)
-        info_y = self.compute_mutual_info(self.activations['target'], quantized)
-        return name, quantized, info_x, info_y, self.n_bins[name]
-
-    def save_information_async(self):
+    def save_information(self):
         self.quantized = dict(input=self.activations['input'])
-        # todo: does it make sense to free memory in the main thread by doing so?
-        named_activations = [(hname, self.activations.pop(hname)) for hname in self.hidden_layer_names()]
-        with concurrent.futures.ProcessPoolExecutor() as executor:
-            futures = []
-            for hname, activations in named_activations:
-                future_scheduled = executor.submit(self._compute_async, name=hname, activations=activations)
-                futures.append(future_scheduled)
-            for future in concurrent.futures.as_completed(futures):
-                hname, quantized, info_x, info_y, n_bins = future.result()
-                self.information[hname] = (info_x, info_y)
-                self.quantized[hname] = quantized
-                self.n_bins[hname] = n_bins
+        for hname in self.hidden_layer_names():
+            quantized = self.process(layer_name=hname, activations=self.activations.pop(hname))
+            info_x = self.compute_mutual_info(self.activations['input'], quantized)
+            info_y = self.compute_mutual_info(self.activations['target'], quantized)
+            self.information[hname] = (info_x, info_y)
+            self.quantized[hname] = quantized
 
     def plot(self, viz):
         assert not self.is_active, "Wait, not finished yet."
