@@ -107,6 +107,8 @@ class ParamsDict(UserDict):
 
 class Monitor(object):
 
+    n_classes_format_ytickstep_1 = 10
+
     def __init__(self, test_loader: torch.utils.data.DataLoader, env_name="main"):
         """
         :param test_loader: dataloader to test model performance at each epoch_finished() call
@@ -193,13 +195,13 @@ class Monitor(object):
 
     def epoch_finished(self, model: nn.Module):
         # self.update_accuracy_test(model)
-        self.update_distribution()
+        # self.update_distribution()
         self.mutual_info.plot(self.viz)
-        for func_id, (func, opts) in enumerate(self.functions):
-            self.viz.line_update(y=func(), win=f"func_{func_id}", opts=opts)
+        # for func_id, (func, opts) in enumerate(self.functions):
+        #     self.viz.line_update(y=func(), win=f"func_{func_id}", opts=opts)
         # statistics below require monitored parameters
         self.param_records.plot_sign_flips(self.viz)
-        self.update_gradient_mean_std()
+        # self.update_gradient_mean_std()
         self.update_initial_difference()
         self.update_grad_norm()
         # self.update_heatmap_history(model, by_dim=False)
@@ -226,16 +228,18 @@ class Monitor(object):
 
     def update_grad_norm(self):
         grad_norms = []
+        legend = []
         for name, param_record in self.param_records.items_monitored():
             grad = param_record.param.grad
             if grad is not None:
                 grad_norms.append(grad.data.norm(p=2))
+                legend.append(name)
         if len(grad_norms) > 0:
-            norm_mean = sum(grad_norms) / len(grad_norms)
-            self.viz.line_update(y=norm_mean, win='grad_norm', opts=dict(
+            self.viz.line_update(y=grad_norms, win='grad_norm', opts=dict(
                 xlabel='Epoch',
                 ylabel='Gradient norm, L2',
-                title='Average grad norm of all params',
+                title='Gradient norm',
+                legend=legend,
             ))
 
     def update_heatmap_history(self, model: nn.Module, by_dim=False):
@@ -252,7 +256,7 @@ class Monitor(object):
                 xlabel='input dimension',
                 ylabel='output dimension',
             )
-            if tensor.shape[0] <= 10:
+            if tensor.shape[0] <= self.n_classes_format_ytickstep_1:
                 opts.update(ytickstep=1)
             self.viz.heatmap(X=tensor, win=win, opts=opts)
 
@@ -276,3 +280,23 @@ class Monitor(object):
     def set_watch_mode(self, mode=False):
         for param_record in self.param_records.values():
             param_record.set_watch_mode(mode)
+
+    def activations_heatmap(self, outputs: torch.Tensor, labels: torch.Tensor):
+        """
+        We'd like the last layer activations heatmap to be different for each corresponding label.
+        :param outputs: the last layer activations
+        :param labels: corresponding labels
+        """
+        outputs_mean = []
+        for label in sorted(labels.unique()):
+            outputs_mean.append(outputs[labels == label].mean(dim=0))
+        win = "Last layer activations heatmap"
+        outputs_mean = torch.stack(outputs_mean, dim=0)
+        opts = dict(
+            title=win,
+            xlabel='Output vector dim',
+            ylabel='Label',
+        )
+        if outputs_mean.shape[0] <= self.n_classes_format_ytickstep_1:
+            opts.update(ytickstep=1)
+        self.viz.heatmap(outputs_mean, win=win, opts=opts)

@@ -9,7 +9,7 @@ import torch.utils.data
 from torchvision import transforms, datasets
 from tqdm import tqdm
 
-from constants import DATA_DIR, MODELS_DIR
+from constants import DATA_DIR, MODELS_DIR, MARGIN
 from monitor.var_online import dataset_mean_std
 
 
@@ -72,7 +72,7 @@ def load_model_state(dataset_name: str, model_name: str):
     return torch.load(model_path)
 
 
-def clamp_params(layer: nn.Module, a_min=-1, a_max=1):
+def clamp_params(layer: nn.Module, a_min=0, a_max=1):
     for child in layer.children():
         clamp_params(child, a_min=a_min, a_max=a_max)
     if isinstance(layer, BinaryDecorator):
@@ -89,10 +89,18 @@ class NormalizeFromDataset(transforms.Normalize):
 
 
 class ContrastiveLabeledLoss(nn.Module):
+    """
+    Even though this loss uses Euclidean distance, it's equivalent to l0 loss, since we apply KWinnersTakeAll.
+    """
 
-    margin = 10
+    def __init__(self, same_only=True):
+        """
+        :param same_only: use same-only or include same-other classes loss?
+        """
+        super().__init__()
+        self.same_only = same_only
 
-    def forward(self, outputs, labels, same_only=True):
+    def forward(self, outputs, labels):
         loss = 0
         for label_unique in labels.unique():
             outputs_same_label = outputs[labels == label_unique]
@@ -102,13 +110,13 @@ class ContrastiveLabeledLoss(nn.Module):
             euclidean_dist = torch.sum(torch.pow(diff, 2), dim=1)
             loss += euclidean_dist.mean()
 
-            if not same_only:
+            if not self.same_only:
                 outputs_other_label = outputs[labels != label_unique]
                 n_take = min(len(outputs_same_label), len(outputs_other_label))
-                outputs_other_label = outputs_other_label[:n_take]
-                diff = outputs_other_label - outputs_same_label[0]
+                diff = outputs_other_label[:n_take] - outputs_same_label[:n_take]
                 euclidean_dist = torch.sum(torch.pow(diff, 2), dim=1)
-                loss += torch.max(torch.zeros(len(euclidean_dist)), self.margin - euclidean_dist).mean()
+                euclidean_dist = torch.max(torch.zeros(len(euclidean_dist)), MARGIN - euclidean_dist)
+                loss += euclidean_dist.mean()
 
         return loss
 
@@ -160,7 +168,7 @@ class BinaryDecorator(nn.Module):
 
     def forward(self, x):
         weight_full = self.layer.weight.data.clone()
-        self.layer.weight.data.sign_()
+        self.layer.weight.data = (weight_full > 0).type(torch.FloatTensor)
         x = self.layer(x)
         self.layer.weight.data = weight_full
         return x

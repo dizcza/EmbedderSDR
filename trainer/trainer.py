@@ -123,6 +123,7 @@ class Trainer(ABC):
                     if torch.isnan(param).any():
                         warnings.warn(f"NaN parameters in '{name}'")
                 self.monitor.batch_finished(self.model)
+                self.monitor.activations_heatmap(outputs, labels)
 
                 # uncomment to see more detailed progress - at each batch instead of epoch
                 # self.monitor.update_loss(loss=loss.item(), mode='batch')
@@ -132,6 +133,7 @@ class Trainer(ABC):
                 self.monitor.update_loss(loss=loss.item(), mode='batch')
                 # self.monitor.update_accuracy(argmax_accuracy(outputs, labels), mode='batch')
                 outputs_full, labels_full = get_outputs(self.model, eval_loader)
+                self.monitor.activations_heatmap(outputs_full, labels_full)
                 # accuracy = argmax_accuracy(outputs_full, labels_full)
                 # self.monitor.update_accuracy(accuracy, mode='full train')
                 # if accuracy > best_accuracy:
