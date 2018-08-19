@@ -132,7 +132,7 @@ class MNIST56(torch.utils.data.TensorDataset):
         self.train = train
         data_path = self.get_data_path()
         if not data_path.exists():
-            mnist = datasets.MNIST(DATA_DIR, train=train, transform=transforms.ToTensor())
+            mnist = datasets.MNIST(DATA_DIR, train=train, transform=transforms.ToTensor(), download=True)
             self.process_mnist(mnist)
         with open(data_path, 'rb') as f:
             data, targets = torch.load(f)
