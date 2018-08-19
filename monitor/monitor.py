@@ -1,6 +1,4 @@
-import time
 from collections import UserDict
-from functools import wraps
 from typing import Callable
 
 import torch
@@ -13,23 +11,6 @@ from monitor.mutual_info import MutualInfoKMeans
 from monitor.var_online import VarianceOnline
 from monitor.viz import VisdomMighty
 from utils import factors_root
-
-
-def timer_profile(func):
-    """
-    For debug purposes only.
-    """
-    @wraps(func)
-    def wrapped(*args, **kwargs):
-        start = time.time()
-        res = func(*args, **kwargs)
-        elapsed = time.time() - start
-        elapsed /= len(args[1])  # fps
-        elapsed *= 1e3
-        print(f"{func.__name__} {elapsed} ms")
-        return res
-
-    return wrapped
 
 
 class ParamRecord(object):
@@ -177,15 +158,15 @@ class Monitor(object):
 
     def update_distribution(self):
         for name, param_record in self.param_records.items():
-            param = param_record.param
-            if param.numel() == 1:
-                self.viz.line_update(y=param.data[0], win=name, opts=dict(
+            param_data = param_record.param.data.cpu()
+            if param_data.numel() == 1:
+                self.viz.line_update(y=param_data.item(), win=name, opts=dict(
                     xlabel='Epoch',
                     ylabel='Value',
                     title=name,
                 ))
             else:
-                self.viz.histogram(X=param.data.cpu().view(-1), win=name, opts=dict(
+                self.viz.histogram(X=param_data.view(-1), win=name, opts=dict(
                     xlabel='Param norm',
                     ylabel='# bins (distribution)',
                     title=name,
@@ -221,7 +202,7 @@ class Monitor(object):
         self.update_gradient_mean_std()
         self.update_initial_difference()
         self.update_grad_norm()
-        self.update_heatmap_history(model, by_dim=False)
+        # self.update_heatmap_history(model, by_dim=False)
 
     def register_layer(self, layer: nn.Module, prefix: str):
         self.mutual_info.register(layer, name=prefix)
@@ -233,7 +214,7 @@ class Monitor(object):
         dp_normed = []
         for name, param_record in self.param_records.items_monitored():
             legend.append(name)
-            dp = param_record.param.data - param_record.initial_data
+            dp = param_record.param.data.cpu() - param_record.initial_data
             dp = dp.norm(p=2) / param_record.initial_norm
             dp_normed.append(dp)
         self.viz.line_update(y=dp_normed, win='w_initial', opts=dict(

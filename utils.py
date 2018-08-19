@@ -1,5 +1,6 @@
 import math
-from functools import lru_cache
+import time
+from functools import lru_cache, wraps
 from pathlib import Path
 
 import torch
@@ -33,6 +34,21 @@ def set_seed(seed: int):
     torch.manual_seed(seed)
 
 
+def timer_profile(func):
+    """
+    For debug purposes only.
+    """
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        start = time.time()
+        res = func(*args, **kwargs)
+        elapsed = time.time() - start
+        print(f"{func.__name__} {elapsed * 1e3} ms")
+        return res
+
+    return wrapped
+
+
 def get_data_loader(dataset: str, train=True, batch_size=256) -> torch.utils.data.DataLoader:
     if dataset == "MNIST56":
         dataset = MNIST56(train=train)
@@ -56,6 +72,14 @@ def load_model_state(dataset_name: str, model_name: str):
     return torch.load(model_path)
 
 
+def clamp_params(layer: nn.Module, a_min=-1, a_max=1):
+    for child in layer.children():
+        clamp_params(child, a_min=a_min, a_max=a_max)
+    if isinstance(layer, BinaryDecorator):
+        for param in layer.parameters():
+            param.data.clamp_(min=a_min, max=a_max)
+
+
 class NormalizeFromDataset(transforms.Normalize):
 
     def __init__(self, dataset_cls: type):
@@ -66,8 +90,10 @@ class NormalizeFromDataset(transforms.Normalize):
 
 class ContrastiveLabeledLoss(nn.Module):
 
-    def forward(self, outputs, labels):
-        loss = torch.zeros(1)
+    margin = 10
+
+    def forward(self, outputs, labels, same_only=True):
+        loss = 0
         for label_unique in labels.unique():
             outputs_same_label = outputs[labels == label_unique]
             if len(outputs_same_label) < 2:
@@ -75,6 +101,15 @@ class ContrastiveLabeledLoss(nn.Module):
             diff = outputs_same_label[1:] - outputs_same_label[0]
             euclidean_dist = torch.sum(torch.pow(diff, 2), dim=1)
             loss += euclidean_dist.mean()
+
+            if not same_only:
+                outputs_other_label = outputs[labels != label_unique]
+                n_take = min(len(outputs_same_label), len(outputs_other_label))
+                outputs_other_label = outputs_other_label[:n_take]
+                diff = outputs_other_label - outputs_same_label[0]
+                euclidean_dist = torch.sum(torch.pow(diff, 2), dim=1)
+                loss += torch.max(torch.zeros(len(euclidean_dist)), self.margin - euclidean_dist).mean()
+
         return loss
 
 
@@ -116,3 +151,19 @@ class MNIST56(torch.utils.data.TensorDataset):
         with open(data_path, 'wb') as f:
             torch.save((data, targets), f)
         print(f"Saved preprocessed data to {data_path}")
+
+
+class BinaryDecorator(nn.Module):
+    def __init__(self, layer: nn.Module):
+        super().__init__()
+        self.layer = layer
+
+    def forward(self, x):
+        weight_full = self.layer.weight.data.clone()
+        self.layer.weight.data.sign_()
+        x = self.layer(x)
+        self.layer.weight.data = weight_full
+        return x
+
+    def __repr__(self):
+        return "[Binary]" + repr(self.layer)

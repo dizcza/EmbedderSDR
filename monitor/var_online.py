@@ -1,4 +1,3 @@
-import matplotlib.pyplot as plt
 import torch
 import torch.utils.data
 from torchvision import transforms, datasets
@@ -70,6 +69,7 @@ def visualize_mean_std(dataset_cls=datasets.MNIST):
     Plots dataset mean and std, averaged across channels.
     :param dataset_cls: class type of torch.utils.data.Dataset
     """
+    import matplotlib.pyplot as plt
     mean, std = dataset_mean_std(dataset_cls=dataset_cls)
     plt.subplot(121)
     plt.title(f"{dataset_cls.__name__} mean")

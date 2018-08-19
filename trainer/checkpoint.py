@@ -17,7 +17,7 @@ class Checkpoint:
         self.patience = patience
         self.best_loss = float('inf')
         self.num_bad_epochs = 0
-        checkpoint_dir = CHECKPOINTS_DIR.joinpath(time.strftime('%Y-%b-%d'))
+        checkpoint_dir = CHECKPOINTS_DIR.joinpath(time.strftime('%Y.%m.%d'))
         if checkpoint_dir.exists():
             shutil.rmtree(path=checkpoint_dir)
         checkpoint_dir.mkdir(parents=True)
@@ -34,7 +34,7 @@ class Checkpoint:
         if self.is_active() and loss < self.best_loss:
             self.best_loss = loss
             self.num_bad_epochs = 0
-            self.best_model_path = self.best_model_path.with_name(f"{time.strftime('%H-%M-%S')}_loss={loss.data[0]}.pt")
+            self.best_model_path = self.best_model_path.with_name(f"{time.strftime('%H-%M-%S')}_loss={loss.item()}.pt")
             self._save(model)
         else:
             self.num_bad_epochs += 1

@@ -1,6 +1,7 @@
 import copy
-from abc import ABC, abstractmethod
 import time
+import warnings
+from abc import ABC, abstractmethod
 
 import torch
 import torch.nn as nn
@@ -9,10 +10,10 @@ from tqdm import tqdm
 
 from constants import MODELS_DIR, ROOT_DIR
 from monitor.accuracy import calc_accuracy, get_outputs
+from monitor.batch_timer import timer
 from monitor.monitor import Monitor
 from trainer.checkpoint import Checkpoint
 from utils import get_data_loader, load_model_state
-from monitor.batch_timer import timer
 
 
 class Trainer(ABC):
@@ -65,19 +66,12 @@ class Trainer(ABC):
         if isinstance(layer, self.watch_modules):
             self.monitor.register_layer(layer, prefix=prefix.lstrip('.'))
 
-    def clamp_param(self, layer: nn.Module, a_min=-1, a_max=1):
-        for child in layer.children():
-            self.clamp_param(child, a_min=a_min, a_max=a_max)
-        if isinstance(layer, self.watch_modules):
-            for param in layer.parameters():
-                param.data.clamp_(min=a_min, max=a_max)
-
     @abstractmethod
     def train_batch(self, images, labels):
         raise NotImplementedError()
 
     def _epoch_finished(self, epoch, outputs, labels) -> torch.Tensor:
-        loss = self.criterion(outputs, labels).data[0]
+        loss = self.criterion(outputs, labels).item()
         self.monitor.update_loss(loss, mode='full train')
         self.checkpoint.step(model=self.model, loss=loss)
         return loss
@@ -125,14 +119,17 @@ class Trainer(ABC):
                     labels = labels.cuda()
 
                 outputs, loss = self.train_batch(images, labels)
+                for name, param in self.model.named_parameters():
+                    if torch.isnan(param).any():
+                        warnings.warn(f"NaN parameters in '{name}'")
                 self.monitor.batch_finished(self.model)
 
                 # uncomment to see more detailed progress - at each batch instead of epoch
-                # self.monitor.update_loss(loss=loss.data[0], mode='batch')
+                # self.monitor.update_loss(loss=loss.item(), mode='batch')
                 # self.monitor.update_accuracy(argmax_accuracy(outputs, labels), mode='batch')
 
             if epoch % epoch_update_step == 0:
-                self.monitor.update_loss(loss=loss.data[0], mode='batch')
+                self.monitor.update_loss(loss=loss.item(), mode='batch')
                 # self.monitor.update_accuracy(argmax_accuracy(outputs, labels), mode='batch')
                 outputs_full, labels_full = get_outputs(self.model, eval_loader)
                 # accuracy = argmax_accuracy(outputs_full, labels_full)
