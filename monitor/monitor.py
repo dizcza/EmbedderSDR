@@ -200,7 +200,7 @@ class Monitor(object):
         # for func_id, (func, opts) in enumerate(self.functions):
         #     self.viz.line_update(y=func(), win=f"func_{func_id}", opts=opts)
         # statistics below require monitored parameters
-        self.param_records.plot_sign_flips(self.viz)
+        # self.param_records.plot_sign_flips(self.viz)
         # self.update_gradient_mean_std()
         self.update_initial_difference()
         self.update_grad_norm()
