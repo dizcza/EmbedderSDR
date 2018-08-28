@@ -2,6 +2,7 @@ import math
 import time
 from functools import lru_cache, wraps
 from pathlib import Path
+from typing import Tuple
 
 import torch
 import torch.nn as nn
@@ -52,6 +53,8 @@ def timer_profile(func):
 def get_data_loader(dataset: str, train=True, batch_size=256) -> torch.utils.data.DataLoader:
     if dataset == "MNIST56":
         dataset = MNIST56(train=train)
+    elif dataset == "MNIST16":
+        dataset = MNIST16(train=train)
     else:
         if dataset == "MNIST":
             dataset_cls = datasets.MNIST
@@ -70,14 +73,6 @@ def load_model_state(dataset_name: str, model_name: str):
     if not model_path.exists():
         return None
     return torch.load(model_path)
-
-
-def clamp_params(layer: nn.Module, a_min=0, a_max=1):
-    for child in layer.children():
-        clamp_params(child, a_min=a_min, a_max=a_max)
-    if isinstance(layer, BinaryDecorator):
-        for param in layer.parameters():
-            param.data.clamp_(min=a_min, max=a_max)
 
 
 class NormalizeFromDataset(transforms.Normalize):
@@ -121,14 +116,10 @@ class ContrastiveLabeledLoss(nn.Module):
         return loss
 
 
-class MNIST56(torch.utils.data.TensorDataset):
-    """
-    MNIST 5 and 6 digits.
-    """
+class MNISTSmall(torch.utils.data.TensorDataset):
 
-    labels_keep = (5, 6)
-
-    def __init__(self, train=True):
+    def __init__(self, labels_keep: Tuple, train: bool):
+        self.labels_keep = labels_keep
         self.train = train
         data_path = self.get_data_path()
         if not data_path.exists():
@@ -161,17 +152,17 @@ class MNIST56(torch.utils.data.TensorDataset):
         print(f"Saved preprocessed data to {data_path}")
 
 
-class BinaryDecorator(nn.Module):
-    def __init__(self, layer: nn.Module):
-        super().__init__()
-        self.layer = layer
+class MNIST56(MNISTSmall):
+    """
+    MNIST 5 and 6 digits.
+    """
+    def __init__(self, train=True):
+        super().__init__(labels_keep=(5, 6), train=train)
 
-    def forward(self, x):
-        weight_full = self.layer.weight.data.clone()
-        self.layer.weight.data = (weight_full > 0).type(torch.FloatTensor)
-        x = self.layer(x)
-        self.layer.weight.data = weight_full
-        return x
 
-    def __repr__(self):
-        return "[Binary]" + repr(self.layer)
+class MNIST16(MNISTSmall):
+    """
+    MNIST 1 and 6 digits.
+    """
+    def __init__(self, train=True):
+        super().__init__(labels_keep=(1, 6), train=train)

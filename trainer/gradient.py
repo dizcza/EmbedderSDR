@@ -5,7 +5,6 @@ import torch.utils.data
 from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
 
 from trainer.trainer import Trainer
-from utils import clamp_params
 
 
 class TrainerGrad(Trainer):
@@ -41,7 +40,7 @@ class TrainerGrad(Trainer):
         loss = self.criterion(outputs, labels)
         loss.backward()
         self.optimizer.step(closure=None)
-        clamp_params(self.model)
+        self.clamp_params(self.model)
         return outputs, loss
 
     def _epoch_finished(self, epoch, outputs, labels) -> torch.Tensor:

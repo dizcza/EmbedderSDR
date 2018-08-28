@@ -287,6 +287,7 @@ class Monitor(object):
         :param outputs: the last layer activations
         :param labels: corresponding labels
         """
+        outputs = outputs.detach()
         outputs_mean = []
         for label in sorted(labels.unique()):
             outputs_mean.append(outputs[labels == label].mean(dim=0))
@@ -300,3 +301,12 @@ class Monitor(object):
         if outputs_mean.shape[0] <= self.n_classes_format_ytickstep_1:
             opts.update(ytickstep=1)
         self.viz.heatmap(outputs_mean, win=win, opts=opts)
+        if outputs_mean.shape[0] == 2:
+            # binary classifier, easy to illustrate
+            diff = (outputs_mean[1] - outputs_mean[0]).abs().sum()
+            title = "How much patterns differ?"
+            self.viz.line_update(y=diff, win=title, opts=dict(
+                xlabel='Epoch',
+                ylabel='sum(|output_label_1| - |output_label_0|)',
+                title=title
+            ))

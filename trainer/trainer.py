@@ -14,11 +14,12 @@ from monitor.batch_timer import timer
 from monitor.monitor import Monitor
 from trainer.checkpoint import Checkpoint
 from utils import get_data_loader, load_model_state
+from model import KWinnersTakeAll, BinarizeWeights
 
 
 class Trainer(ABC):
 
-    watch_modules = (nn.Linear, nn.Conv2d)
+    watch_modules = (nn.Linear, nn.Conv2d, KWinnersTakeAll, BinarizeWeights)
 
     def __init__(self, model: nn.Module, criterion: nn.Module, dataset_name: str, patience=None,
                  project_name=ROOT_DIR.name):
@@ -75,6 +76,14 @@ class Trainer(ABC):
         self.monitor.update_loss(loss, mode='full train')
         self.checkpoint.step(model=self.model, loss=loss)
         return loss
+
+    @staticmethod
+    def clamp_params(layer: nn.Module, a_min=0, a_max=1):
+        for child in layer.children():
+            Trainer.clamp_params(child, a_min=a_min, a_max=a_max)
+        if isinstance(layer, BinarizeWeights):
+            for param in layer.parameters():
+                param.data.clamp_(min=a_min, max=a_max)
 
     def train(self, n_epoch=10, save=True, epoch_update_step=1, with_mutual_info=False, watch_parameters=False):
         """

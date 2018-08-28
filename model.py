@@ -7,7 +7,23 @@ import torch.nn.functional as F
 from constants import SPARSITY, EMBEDDING_SIZE
 
 
-class KWinnersTakeAll(torch.autograd.Function):
+class BinarizeWeights(nn.Module):
+    def __init__(self, layer: nn.Module):
+        super().__init__()
+        self.layer = layer
+
+    def forward(self, x):
+        weight_full = self.layer.weight.data.clone()
+        self.layer.weight.data = (weight_full > 0).type(torch.FloatTensor)
+        x = self.layer(x)
+        self.layer.weight.data = weight_full
+        return x
+
+    def __repr__(self):
+        return "[Binary]" + repr(self.layer)
+
+
+class _KWinnersTakeAllFunction(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, tensor):
@@ -20,11 +36,20 @@ class KWinnersTakeAll(torch.autograd.Function):
             mask_active[sample_id, active_indices[sample_id]] = 1
         tensor[~mask_active] = 0
         tensor[mask_active] = 1
+        ctx.save_for_backward(mask_active)
         return tensor
 
     @staticmethod
     def backward(ctx, grad_output):
+        mask_active, = ctx.saved_tensors
         return grad_output
+
+
+class KWinnersTakeAll(nn.Module):
+
+    def forward(self, x):
+        x = _KWinnersTakeAllFunction.apply(x)
+        return x
 
 
 class Embedder(nn.Module):
@@ -37,7 +62,7 @@ class Embedder(nn.Module):
         x = F.max_pool2d(x, kernel_size=3)
         x = x.view(x.shape[0], -1)
         x = self.fc_emb(x)
-        x = KWinnersTakeAll.apply(x)
+        x = self.kwta(x)
         return x
 
     def __init__(self):
@@ -45,3 +70,4 @@ class Embedder(nn.Module):
         self.conv1 = nn.Conv2d(in_channels=1, out_channels=5, kernel_size=3, bias=False)
         self.bn1 = nn.BatchNorm2d(num_features=5)
         self.fc_emb = nn.Linear(in_features=5*8*8, out_features=EMBEDDING_SIZE, bias=False)
+        self.kwta = KWinnersTakeAll()
