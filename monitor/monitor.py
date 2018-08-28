@@ -79,7 +79,7 @@ class ParamsDict(UserDict):
         if self.count_monitored() == 0:
             # haven't registered any monitored params yet
             return
-        viz.line_update(y=self.sign_flips / self.n_updates, win='sign', opts=dict(
+        viz.line_update(y=self.sign_flips / self.n_updates, opts=dict(
             xlabel='Epoch',
             ylabel='Sign flips',
             title="Sign flips after optimizer.step()",
@@ -138,14 +138,14 @@ class Monitor(object):
             self.mutual_info.plot(self.viz)
 
     def update_loss(self, loss: float, mode='batch'):
-        self.viz.line_update(loss, win=f'loss', opts=dict(
+        self.viz.line_update(loss, opts=dict(
             xlabel='Epoch',
             ylabel='Loss',
             title=f'Loss'
         ), name=mode)
 
     def update_accuracy(self, accuracy: float, mode='batch'):
-        self.viz.line_update(accuracy, win=f'accuracy', opts=dict(
+        self.viz.line_update(accuracy, opts=dict(
             xlabel='Epoch',
             ylabel='Accuracy',
             title=f'Accuracy'
@@ -162,7 +162,7 @@ class Monitor(object):
         for name, param_record in self.param_records.items():
             param_data = param_record.param.data.cpu()
             if param_data.numel() == 1:
-                self.viz.line_update(y=param_data.item(), win=name, opts=dict(
+                self.viz.line_update(y=param_data.item(), opts=dict(
                     xlabel='Epoch',
                     ylabel='Value',
                     title=name,
@@ -184,10 +184,10 @@ class Monitor(object):
             param_norm = param.data.norm(p=2)
             mean = mean.norm(p=2) / param_norm
             std = std.mean() / param_norm
-            self.viz.line_update(y=[mean, std], win=f"grad_mean_std_{name}", opts=dict(
+            self.viz.line_update(y=[mean, std], opts=dict(
                 xlabel='Epoch',
                 ylabel='Normalized Mean and STD',
-                title=name,
+                title=f'Gradient Mean and STD: {name}',
                 legend=['||Mean(∇Wi)||', 'STD(∇Wi)'],
                 xtype='log',
                 ytype='log',
@@ -219,7 +219,7 @@ class Monitor(object):
             dp = param_record.param.data.cpu() - param_record.initial_data
             dp = dp.norm(p=2) / param_record.initial_norm
             dp_normed.append(dp)
-        self.viz.line_update(y=dp_normed, win='w_initial', opts=dict(
+        self.viz.line_update(y=dp_normed, opts=dict(
             xlabel='Epoch',
             ylabel='||W - W_initial|| / ||W_initial||',
             title='How far the current weights are from the initial?',
@@ -235,7 +235,7 @@ class Monitor(object):
                 grad_norms.append(grad.data.norm(p=2))
                 legend.append(name)
         if len(grad_norms) > 0:
-            self.viz.line_update(y=grad_norms, win='grad_norm', opts=dict(
+            self.viz.line_update(y=grad_norms, opts=dict(
                 xlabel='Epoch',
                 ylabel='Gradient norm, L2',
                 title='Gradient norm',
@@ -304,9 +304,8 @@ class Monitor(object):
         if outputs_mean.shape[0] == 2:
             # binary classifier, easy to illustrate
             diff = (outputs_mean[1] - outputs_mean[0]).abs().sum()
-            title = "How much patterns differ?"
-            self.viz.line_update(y=diff, win=title, opts=dict(
+            self.viz.line_update(y=diff, opts=dict(
                 xlabel='Epoch',
                 ylabel='sum(|output_label_1| - |output_label_0|)',
-                title=title
+                title='How much patterns differ?',
             ))
