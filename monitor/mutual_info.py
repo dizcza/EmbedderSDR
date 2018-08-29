@@ -17,18 +17,59 @@ from monitor.viz import VisdomMighty
 LayerForward = namedtuple("LayerForward", ("layer", "forward_orig"))
 
 
+class PartialMutualInfo(object):
+
+    def __init__(self, is_active=False, n_percentiles=5, n_trials=5):
+        """
+        :param n_percentiles: number of percentiles to divide the feature space into
+        :param n_trials: number of trials to smooth the results of each percentile
+        """
+        self.is_active = is_active
+        self.n_percentiles = n_percentiles
+        self.n_trials = n_trials
+        self.information = defaultdict(list)
+
+    def features_linspace(self, n_features: int) -> np.ndarray:
+        step = math.ceil(n_features / self.n_percentiles)
+        return np.linspace(start=step, stop=n_features - step, num=self.n_percentiles - 1, endpoint=True, dtype=int)
+
+    def plot_effective_size(self, viz, information_full):
+        if not self.is_active:
+            return
+        info_y_partial = []
+        legend = []
+        for hname in tuple(self.information.keys()):
+            info_y_layer = self.information.pop(hname)
+            info_y_mean = np.mean(info_y_layer, axis=1)
+            info_x_ignored, info_y_full = information_full[hname]
+            info_y_mean = np.r_[info_y_mean, info_y_full]
+            info_y_partial.append(info_y_mean)
+            legend.append(hname)
+        title = f'Partial Mutual information. Epoch {viz.timer.epoch:03d}'
+        percents = np.linspace(start=100 / self.n_percentiles, stop=100, num=self.n_percentiles, endpoint=True)
+        viz.line(Y=np.vstack(info_y_partial).T, X=percents, win=title, opts=dict(
+            xlabel='% of chosen neurons',
+            ylabel='I(T, Y), bits',
+            title=title,
+            legend=legend,
+        ))
+
+
 class MutualInfoBin(ABC):
 
     log2e = math.log2(math.e)
     n_bins_default = 20
 
-    def __init__(self, estimate_size: int = np.inf, compression_range=(0.50, 0.999), debug=False):
+    def __init__(self, estimate_size: int = np.inf, compression_range=(0.50, 0.999),
+                 with_partial_information=False, debug=False):
         """
         :param estimate_size: number of samples to estimate MI from
         :param compression_range: min & max acceptable quantization compression range
+        :param with_partial_information: inspect MI ~ number_of_neurons dependency?
         """
         self.estimate_size = estimate_size
         self.compression_range = compression_range
+        self.partial_information = PartialMutualInfo(is_active=with_partial_information)
         self.debug = debug
         self.n_bins = {}
         self.max_trials_adjust = 10
@@ -118,11 +159,19 @@ class MutualInfoBin(ABC):
             activations = activations.view(activations.shape[0], -1)
             if layer_name not in self.n_bins:
                 self.n_bins[layer_name] = self.adjust_bins(layer_name, activations)
+            if self.partial_information.is_active and layer_name != 'input':
+                n_features = activations.shape[1]
+                for n_features_partial in self.partial_information.features_linspace(n_features):
+                    info_y_trials = []
+                    for trial in range(self.partial_information.n_trials):
+                        feature_idx = np.random.choice(n_features, size=n_features_partial, replace=False)
+                        quantized_partial = self.quantize(layer_name, activations[:, feature_idx],
+                                                          n_bins=self.n_bins[layer_name])
+                        info_y = self.compute_mutual_info(quantized_partial, self.activations['target'])
+                        info_y_trials.append(info_y)
+                    self.partial_information.information[layer_name].append(info_y_trials)
             activations = self.quantize(layer_name, activations, n_bins=self.n_bins[layer_name])
         return activations
-
-    def hidden_layer_names(self):
-        return [name for name in self.activations if name not in ('input', 'target')]
 
     def compute_mutual_info(self, x, y) -> float:
         return mutual_info_score(x, y) * self.log2e
@@ -165,7 +214,7 @@ class MutualInfoBin(ABC):
 
     def save_information(self):
         self.quantized = dict(input=self.activations['input'])
-        for hname in self.hidden_layer_names():
+        for hname in self.layers.keys():
             quantized = self.process(layer_name=hname, activations=self.activations.pop(hname))
             info_x = self.compute_mutual_info(self.activations['input'], quantized)
             info_y = self.compute_mutual_info(self.activations['target'], quantized)
@@ -180,6 +229,7 @@ class MutualInfoBin(ABC):
         ys = []
         xs = []
         self.plot_quantized_dispersion(viz)
+        self.partial_information.plot_effective_size(viz, self.information)
         for layer_name, (info_x, info_y) in tuple(self.information.items()):
             ys.append(info_y)
             xs.append(info_x)
