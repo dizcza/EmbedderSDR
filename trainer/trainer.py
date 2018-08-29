@@ -132,9 +132,9 @@ class Trainer(ABC):
                     if torch.isnan(param).any():
                         warnings.warn(f"NaN parameters in '{name}'")
                 self.monitor.batch_finished(self.model)
-                self.monitor.activations_heatmap(outputs, labels)
 
                 # uncomment to see more detailed progress - at each batch instead of epoch
+                # self.monitor.activations_heatmap(outputs, labels)
                 # self.monitor.update_loss(loss=loss.item(), mode='batch')
                 # self.monitor.update_accuracy(argmax_accuracy(outputs, labels), mode='batch')
 

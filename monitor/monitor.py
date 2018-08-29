@@ -306,6 +306,6 @@ class Monitor(object):
             diff = (outputs_mean[1] - outputs_mean[0]).abs().sum()
             self.viz.line_update(y=diff, opts=dict(
                 xlabel='Epoch',
-                ylabel='sum(|output_label_1| - |output_label_0|)',
-                title='How much patterns differ?',
+                ylabel='sum(|output_label_1 - output_label_0|)',
+                title='How much patterns differ? L1 distance.',
             ))

@@ -95,6 +95,9 @@ class ContrastiveLabeledLoss(nn.Module):
         super().__init__()
         self.same_only = same_only
 
+    def extra_repr(self):
+        return f'same_only={self.same_only}'
+
     def forward(self, outputs, labels):
         loss = 0
         for label_unique in labels.unique():
