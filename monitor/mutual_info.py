@@ -15,63 +15,29 @@ from monitor.batch_timer import Schedule
 from monitor.viz import VisdomMighty
 
 LayerForward = namedtuple("LayerForward", ("layer", "forward_orig"))
-
-
-class PartialMutualInfo(object):
-
-    def __init__(self, is_active=False, n_percentiles=5, n_trials=5):
-        """
-        :param n_percentiles: number of percentiles to divide the feature space into
-        :param n_trials: number of trials to smooth the results of each percentile
-        """
-        self.is_active = is_active
-        self.n_percentiles = n_percentiles
-        self.n_trials = n_trials
-        self.information = defaultdict(list)
-
-    def features_linspace(self, n_features: int) -> np.ndarray:
-        step = math.ceil(n_features / self.n_percentiles)
-        return np.linspace(start=step, stop=n_features - step, num=self.n_percentiles - 1, endpoint=True, dtype=int)
-
-    def plot_effective_size(self, viz, information_full):
-        if not self.is_active:
-            return
-        info_y_partial = []
-        legend = []
-        for hname in tuple(self.information.keys()):
-            info_y_layer = self.information.pop(hname)
-            info_y_mean = np.mean(info_y_layer, axis=1)
-            info_x_ignored, info_y_full = information_full[hname]
-            info_y_mean = np.r_[info_y_mean, info_y_full]
-            info_y_partial.append(info_y_mean)
-            legend.append(hname)
-        title = f'Partial Mutual information. Epoch {viz.timer.epoch:03d}'
-        percents = np.linspace(start=100 / self.n_percentiles, stop=100, num=self.n_percentiles, endpoint=True)
-        viz.line(Y=np.vstack(info_y_partial).T, X=percents, win=title, opts=dict(
-            xlabel='% of chosen neurons',
-            ylabel='I(T, Y), bits',
-            title=title,
-            legend=legend,
-        ))
+Information = namedtuple("Information", ("x", "y_percentiles"))
 
 
 class MutualInfoBin(ABC):
-
     log2e = math.log2(math.e)
     n_bins_default = 20
 
-    def __init__(self, estimate_size: int = np.inf, compression_range=(0.50, 0.999),
-                 with_partial_information=False, debug=False):
+    def __init__(self, estimate_size: int = np.inf, compression_range=(0.50, 0.999), n_percentiles=5, n_trials=5,
+                 debug=False):
         """
         :param estimate_size: number of samples to estimate MI from
         :param compression_range: min & max acceptable quantization compression range
-        :param with_partial_information: inspect MI ~ number_of_neurons dependency?
+        :param n_percentiles: number of percentiles to divide the feature space into
+        :param n_trials: number of trials to smooth the results for each percentile
+        :param debug: plot bins distribution?
         """
         self.estimate_size = estimate_size
         self.compression_range = compression_range
-        self.partial_information = PartialMutualInfo(is_active=with_partial_information)
+        self.n_percentiles = n_percentiles
+        self.n_trials = n_trials
         self.debug = debug
-        self.n_bins = {}
+        self.n_bins = defaultdict(lambda: MutualInfoBin.n_bins_default)
+        self.compression = {}
         self.max_trials_adjust = 10
         self.layers = {}
         self.activations = defaultdict(list)
@@ -79,6 +45,10 @@ class MutualInfoBin(ABC):
         self.information = {}
         self.is_active = False
         self.eval_loader = None
+
+    @property
+    def percentiles(self):
+        return 1. / 2 ** np.arange(start=self.n_percentiles - 1, stop=-1, step=-1, dtype=int)
 
     def register(self, layer: nn.Module, name: str):
         self.layers[name] = LayerForward(layer, layer.forward)
@@ -107,6 +77,7 @@ class MutualInfoBin(ABC):
             outputs = get_outputs(*args, **kwargs)
             self.finish_listening()
             return outputs
+
         print(f"Decorated '{get_outputs.__name__}' function to save layer activations for MI estimation")
         return get_outputs_wrapped
 
@@ -119,8 +90,8 @@ class MutualInfoBin(ABC):
             targets.append(labels)
             if len(inputs) * loader.batch_size >= self.estimate_size:
                 break
-        self.activations['input'] = self.process(layer_name='input', activations=inputs)
-        self.activations['target'] = self.process(layer_name='target', activations=targets)
+        self.process(layer_name='input', activations=inputs)
+        self.process(layer_name='target', activations=targets)
 
     @Schedule(epoch_update=0, batch_update=5)
     def start_listening(self):
@@ -135,7 +106,8 @@ class MutualInfoBin(ABC):
         for name, (layer, forward_orig) in self.layers.items():
             layer.forward = forward_orig
         self.is_active = False
-        self.save_information()
+        for hname in self.layers.keys():
+            self.process(layer_name=hname, activations=self.activations.pop(hname))
 
     def _wrap_forward(self, layer_name, forward_orig):
         def forward_and_save(input):
@@ -143,98 +115,115 @@ class MutualInfoBin(ABC):
             output = forward_orig(input)
             self.save_activations(layer_name, output)
             return output
+
         return forward_and_save
 
     def save_activations(self, layer_name: str, tensor: torch.Tensor):
         self.activations[layer_name].append(tensor.data.cpu().clone())
 
-    def process(self, layer_name: str, activations: List[torch.FloatTensor]) -> np.ndarray:
+    def process(self, layer_name: str, activations: List[torch.FloatTensor]):
         activations = torch.cat(activations, dim=0)
         size = min(len(activations), self.estimate_size)
         activations = activations[: size]
         if layer_name == 'target':
             assert isinstance(activations, (torch.LongTensor, torch.IntTensor))
             activations = activations.numpy()
-        else:
-            activations = activations.view(activations.shape[0], -1)
-            if layer_name not in self.n_bins:
-                self.n_bins[layer_name] = self.adjust_bins(layer_name, activations)
-            if self.partial_information.is_active and layer_name != 'input':
-                n_features = activations.shape[1]
-                for n_features_partial in self.partial_information.features_linspace(n_features):
-                    info_y_trials = []
-                    for trial in range(self.partial_information.n_trials):
-                        feature_idx = np.random.choice(n_features, size=n_features_partial, replace=False)
-                        quantized_partial = self.quantize(layer_name, activations[:, feature_idx],
-                                                          n_bins=self.n_bins[layer_name])
-                        info_y = self.compute_mutual_info(quantized_partial, self.activations['target'])
-                        info_y_trials.append(info_y)
-                    self.partial_information.information[layer_name].append(info_y_trials)
-            activations = self.quantize(layer_name, activations, n_bins=self.n_bins[layer_name])
-        return activations
+            self.quantized[layer_name] = activations
+            return
+        activations = activations.view(activations.shape[0], -1)
+        if layer_name not in self.n_bins:
+            self.adjust_bins(layer_name, activations)
+        if layer_name == 'input':
+            quantized = self.quantize(activations, n_bins=self.n_bins[layer_name])
+            self.quantized[layer_name] = quantized
+            return
+        n_features = activations.shape[1]
+        n_features_percentiles = np.ceil(n_features * self.percentiles).astype(int)
+        self.quantized[layer_name] = []
+        info_y = []
+        for n_features_partial in n_features_percentiles:
+            quantized_percentile = []
+            info_y_percentile = []
+            for trial in range(self.n_trials):
+                feature_idx = np.random.choice(n_features, size=n_features_partial, replace=False)
+                quantized_percentile_trial = self.quantize(activations[:, feature_idx],
+                                                           n_bins=self.n_bins[layer_name])
+                quantized_percentile.append(quantized_percentile_trial)
+                info_y_trial = self.compute_mutual_info(self.quantized['target'], quantized_percentile_trial)
+                info_y_percentile.append(info_y_trial)
+            self.quantized[layer_name].append(quantized_percentile)
+            info_y_percentile = np.mean(info_y_percentile)
+            info_y.append(info_y_percentile)
+        quantized_100 = self.quantized[layer_name][-1][0]  # any trial of 100-percentile is fine
+        info_x = self.compute_mutual_info(self.quantized['input'], quantized_100)
+        self.information[layer_name] = Information(x=info_x, y_percentiles=info_y)
 
-    def compute_mutual_info(self, x, y) -> float:
-        return mutual_info_score(x, y) * self.log2e
+    @staticmethod
+    def compute_mutual_info(x, y) -> float:
+        return mutual_info_score(x, y) * MutualInfoBin.log2e
 
-    def plot_quantized_hist(self, viz: VisdomMighty):
-        for name, layer_quantized in self.quantized.items():
-            _, counts = np.unique(layer_quantized, return_counts=True)
-            counts.sort()
+    def plot_quantized_hist(self, viz):
+        """
+        Plots quantized bins distribution.
+        Ideally, we'd like the histogram to match a uniform distribution.
+        """
+        def _plot_bins(name, quantized_trials):
+            counts = []
+            for quantized_trial in quantized_trials:
+                _, counts_trial = np.unique(quantized_trial, return_counts=True)
+                if len(counts_trial) < self.n_bins[name]:
+                    counts_trial = np.r_[counts_trial, 0]
+                counts.append(counts_trial)
+            counts = np.sort(counts, axis=1).mean(axis=0)
             counts = counts[::-1]
-            viz.bar(Y=np.arange(len(counts), dtype=int), X=counts, win=f'{name} MI hist', opts=dict(
+            viz.bar(X=counts, win=f'{name} MI hist', opts=dict(
                 xlabel='bin ID',
-                ylabel='# items',
-                title=f'{name} MI quantized histogram',
+                ylabel='# activation codes',
+                title=f'MI quantized histogram: {name}',
             ))
+        for name in self.layers.keys():
+            quantized_percentile_100 = self.quantized[name][-1]
+            _plot_bins(name, quantized_trials=quantized_percentile_100)
+        _plot_bins('input', quantized_trials=[self.quantized['input']])
 
-    def plot_quantized_dispersion(self, viz: VisdomMighty):
+    def plot_compression(self, viz):
+        viz.bar(X=list(self.compression.values()), win=f'compression', opts=dict(
+            rownames=list(self.compression.keys()),
+            ylabel='compression',
+            title=f'MI quantized compression',
+        ))
+
+    def plot_information_percentiles(self, viz):
+        info_y_percentiles = []
         legend = []
-        for name in self.quantized.keys():
-            legend.append(f'{name} ({self.n_bins[name]} bins)')
-        if len(set(self.n_bins[name] for name in self.quantized.keys())) == 1:
-            # all layers have the same n_bins
-            n_bins = self.n_bins['input']
-            counts = np.zeros(shape=(len(self.quantized), n_bins), dtype=np.int32)
-            for layer_id, (name, layer_quantized) in enumerate(self.quantized.items()):
-                _, layer_counts = np.unique(layer_quantized, return_counts=True)
-                counts[layer_id, :len(layer_counts)] = layer_counts
-            viz.boxplot(X=counts.transpose(), win='MI hist', opts=dict(
-                ylabel='# items in one bin',
-                title='MI quantized dispersion (smaller is better)',
-                legend=legend,
-            ))
-        else:
-            viz.boxplot(X=np.vstack(self.quantized.values()).transpose(), win='MI hist', opts=dict(
-                ylabel='bin ID dispersion',
-                title='MI inverse quantized dispersion (smaller is worse)',
-                legend=legend,
-            ))
-        if self.debug:
-            self.plot_quantized_hist(viz)
-
-    def save_information(self):
-        self.quantized = dict(input=self.activations['input'])
-        for hname in self.layers.keys():
-            quantized = self.process(layer_name=hname, activations=self.activations.pop(hname))
-            info_x = self.compute_mutual_info(self.activations['input'], quantized)
-            info_y = self.compute_mutual_info(self.activations['target'], quantized)
-            self.information[hname] = (info_x, info_y)
-            self.quantized[hname] = quantized
+        for hname, information in self.information.items():
+            info_y_percentiles.append(information.y_percentiles)
+            legend.append(hname)
+        title = f'Partial Mutual information'
+        viz.line(Y=np.vstack(info_y_percentiles).T, X=100 * self.percentiles, win=title, opts=dict(
+            xlabel='% of chosen neurons (percentile)',
+            ylabel='I(T, Y), bits',
+            title=title,
+            legend=legend,
+        ))
 
     def plot(self, viz):
         assert not self.is_active, "Wait, not finished yet."
         if len(self.information) == 0:
             return
+        if self.debug:
+            self.plot_quantized_hist(viz)
+            self.plot_compression(viz)
+        if self.n_percentiles > 1:
+            self.plot_information_percentiles(viz)
         legend = []
         ys = []
         xs = []
-        self.plot_quantized_dispersion(viz)
-        self.partial_information.plot_effective_size(viz, self.information)
-        for layer_name, (info_x, info_y) in tuple(self.information.items()):
-            ys.append(info_y)
-            xs.append(info_x)
+        for layer_name, information in self.information.items():
+            info_y_percentile_100 = information.y_percentiles[-1]
+            ys.append(info_y_percentile_100)
+            xs.append(information.x)
             legend.append(layer_name)
-            del self.information[layer_name]
         title = 'Mutual information plane'
         viz.line(Y=np.array([ys]), X=np.array([xs]), win=title, opts=dict(
             xlabel='I(X, T), bits',
@@ -242,13 +231,14 @@ class MutualInfoBin(ABC):
             title=title,
             legend=legend,
         ), update='append' if viz.win_exists(title) else None)
+        self.information.clear()
 
-    def adjust_bins(self, layer_name: str, activations: torch.FloatTensor) -> int:
-        n_bins = self.n_bins_default
+    def adjust_bins(self, layer_name: str, activations: torch.FloatTensor):
+        n_bins = self.n_bins[layer_name]
         compression_min, compression_max = self.compression_range
         for trial in range(self.max_trials_adjust):
-            digitized = self.digitize(layer_name, activations, n_bins)
-            unique = np.unique(digitized, axis=0)
+            quantized = self.quantize(activations, n_bins)
+            unique = np.unique(quantized, axis=0)
             compression = (len(activations) - len(unique)) / len(activations)
             if compression > compression_max:
                 n_bins *= 2
@@ -257,25 +247,26 @@ class MutualInfoBin(ABC):
                 if n_bins == 2:
                     break
             else:
+                self.compression[layer_name] = compression
                 break
-        return n_bins
+        self.n_bins[layer_name] = n_bins
 
     @abstractmethod
-    def digitize(self, layer_name: str, activations: torch.FloatTensor, n_bins: int) -> np.ndarray:
+    def digitize(self, activations: torch.FloatTensor, n_bins: int) -> np.ndarray:
         pass
 
-    def quantize(self, layer_name: str, activations: torch.FloatTensor, n_bins: int) -> np.ndarray:
-        digitized = self.digitize(layer_name, activations, n_bins=n_bins)
+    def quantize(self, activations: torch.FloatTensor, n_bins: int) -> np.ndarray:
+        digitized = self.digitize(activations, n_bins=n_bins)
         unique, inverse = np.unique(digitized, return_inverse=True, axis=0)
         return inverse
 
 
 class MutualInfoKMeans(MutualInfoBin):
 
-    def digitize(self, layer_name: str, activations: torch.FloatTensor, n_bins: int) -> np.ndarray:
+    def digitize(self, activations: torch.FloatTensor, n_bins: int) -> np.ndarray:
         model = cluster.MiniBatchKMeans(n_clusters=n_bins)
         labels = model.fit_predict(activations)
         return labels
 
-    def quantize(self, layer_name: str, activations: torch.FloatTensor, n_bins: int) -> np.ndarray:
-        return self.digitize(layer_name, activations, n_bins=n_bins)
+    def quantize(self, activations: torch.FloatTensor, n_bins: int) -> np.ndarray:
+        return self.digitize(activations, n_bins=n_bins)
