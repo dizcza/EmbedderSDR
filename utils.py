@@ -53,8 +53,8 @@ def timer_profile(func):
 def get_data_loader(dataset: str, train=True, batch_size=256) -> torch.utils.data.DataLoader:
     if dataset == "MNIST56":
         dataset = MNIST56(train=train)
-    elif dataset == "MNIST16":
-        dataset = MNIST16(train=train)
+    elif dataset == "FashionMNIST56":
+        dataset = FashionMNIST56(train=train)
     else:
         if dataset == "MNIST":
             dataset_cls = datasets.MNIST
@@ -121,12 +121,12 @@ class ContrastiveLabeledLoss(nn.Module):
 
 class MNISTSmall(torch.utils.data.TensorDataset):
 
-    def __init__(self, labels_keep: Tuple, train: bool):
+    def __init__(self, dataset_cls, labels_keep: Tuple, train: bool):
         self.labels_keep = labels_keep
         self.train = train
         data_path = self.get_data_path()
         if not data_path.exists():
-            mnist = datasets.MNIST(DATA_DIR, train=train, transform=transforms.ToTensor(), download=True)
+            mnist = dataset_cls(DATA_DIR, train=train, transform=transforms.ToTensor(), download=True)
             self.process_mnist(mnist)
         with open(data_path, 'rb') as f:
             data, targets = torch.load(f)
@@ -138,12 +138,13 @@ class MNISTSmall(torch.utils.data.TensorDataset):
     def process_mnist(self, mnist: torch.utils.data.Dataset):
         data = []
         targets = []
-        for image, label_old in tqdm(mnist, desc=f"Preparing {self.__class__.__name__} dataset"):
+        train_str = "train" if self.train else "test"
+        for image, label_old in tqdm(mnist, desc=f"Preparing {self.__class__.__name__} {train_str} dataset"):
             if label_old in self.labels_keep:
                 label_new = self.labels_keep.index(label_old)
                 targets.append(label_new)
                 data.append(image)
-        data = torch.cat(data, dim=0)
+        data = torch.stack(data, dim=0)
         data_mean = data.mean(dim=0)
         data_std = data.std(dim=0) + 1e-6
         data = (data - data_mean) / data_std
@@ -160,12 +161,12 @@ class MNIST56(MNISTSmall):
     MNIST 5 and 6 digits.
     """
     def __init__(self, train=True):
-        super().__init__(labels_keep=(5, 6), train=train)
+        super().__init__(dataset_cls=datasets.MNIST, labels_keep=(5, 6), train=train)
 
 
-class MNIST16(MNISTSmall):
+class FashionMNIST56(MNISTSmall):
     """
-    MNIST 1 and 6 digits.
+    FashionMNIST 5 and 6 class.
     """
     def __init__(self, train=True):
-        super().__init__(labels_keep=(1, 6), train=train)
+        super().__init__(dataset_cls=datasets.FashionMNIST, labels_keep=(5, 6), train=train)

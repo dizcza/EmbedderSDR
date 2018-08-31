@@ -62,7 +62,6 @@ class KWinnersTakeAll(nn.Module):
 class Embedder(nn.Module):
 
     def forward(self, x):
-        x = x.view(x.shape[0], 1, x.shape[1], x.shape[2])
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)

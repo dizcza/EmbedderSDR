@@ -171,8 +171,8 @@ class MutualInfoBin(ABC):
             counts = []
             for quantized_trial in quantized_trials:
                 _, counts_trial = np.unique(quantized_trial, return_counts=True)
-                if len(counts_trial) < self.n_bins[name]:
-                    counts_trial = np.r_[counts_trial, 0]
+                n_empty_clusters = self.n_bins[name] - len(counts_trial)
+                counts_trial = np.r_[counts_trial, np.zeros(n_empty_clusters, dtype=int)]
                 counts.append(counts_trial)
             counts = np.sort(counts, axis=1).mean(axis=0)
             counts = counts[::-1]
