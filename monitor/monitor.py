@@ -1,9 +1,11 @@
 from collections import UserDict
 from typing import Callable
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.utils.data
+from sklearn.metrics.pairwise import manhattan_distances
 
 from monitor.accuracy import calc_accuracy
 from monitor.batch_timer import timer, Schedule
@@ -289,23 +291,26 @@ class Monitor(object):
         """
         outputs = outputs.detach()
         outputs_mean = []
+        label_names = []
         for label in sorted(labels.unique()):
             outputs_mean.append(outputs[labels == label].mean(dim=0))
+            label_names.append(str(label.item()))
         win = "Last layer activations heatmap"
         outputs_mean = torch.stack(outputs_mean, dim=0)
         opts = dict(
             title=win,
-            xlabel='Output vector dim',
+            xlabel='Embedding dimension',
             ylabel='Label',
+            rownames=label_names,
         )
         if outputs_mean.shape[0] <= self.n_classes_format_ytickstep_1:
             opts.update(ytickstep=1)
         self.viz.heatmap(outputs_mean, win=win, opts=opts)
-        if outputs_mean.shape[0] == 2:
-            # binary classifier, easy to illustrate
-            diff = (outputs_mean[1] - outputs_mean[0]).abs().sum()
-            self.viz.line_update(y=diff, opts=dict(
-                xlabel='Epoch',
-                ylabel='sum(|output_label_1 - output_label_0|)',
-                title='How much do patterns differ in L1 measure?',
-            ))
+        l1_dist = manhattan_distances(outputs_mean)
+        upper_triangle_idx = np.triu_indices_from(l1_dist, k=1)
+        l1_dist = l1_dist[upper_triangle_idx].mean()
+        self.viz.line_update(y=l1_dist, opts=dict(
+            xlabel='Epoch',
+            ylabel='Mean pairwise distance',
+            title='How much do patterns differ in L1 measure?',
+        ))
