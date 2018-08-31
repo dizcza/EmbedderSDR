@@ -51,7 +51,7 @@ def dataset_mean_std(dataset_cls: type, batch_size=256):
     if not mean_std_file.exists():
         dataset = dataset_cls(DATA_DIR, train=True, download=True, transform=transforms.ToTensor())
         loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=4)
-        var_online = VarianceOnline(is_active=True)
+        var_online = VarianceOnline()
         for images, labels in tqdm(loader, desc=f"{dataset_cls.__name__}: running online mean, std"):
             for image in images:
                 var_online.update(new_tensor=image)
