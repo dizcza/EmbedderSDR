@@ -22,7 +22,7 @@ class MutualInfoBin(ABC):
     log2e = math.log2(math.e)
     n_bins_default = 20
 
-    def __init__(self, estimate_size: int = np.inf, compression_range=(0.50, 0.999), n_percentiles=5, n_trials=5,
+    def __init__(self, estimate_size: int = np.inf, compression_range=(0.50, 0.999), n_percentiles=1, n_trials=1,
                  debug=False):
         """
         :param estimate_size: number of samples to estimate MI from
@@ -106,7 +106,7 @@ class MutualInfoBin(ABC):
         for name, (layer, forward_orig) in self.layers.items():
             layer.forward = forward_orig
         self.is_active = False
-        for hname in self.layers.keys():
+        for hname in tuple(self.activations.keys()):
             self.process(layer_name=hname, activations=self.activations.pop(hname))
 
     def _wrap_forward(self, layer_name, forward_orig):
@@ -181,7 +181,7 @@ class MutualInfoBin(ABC):
                 ylabel='# activation codes',
                 title=f'MI quantized histogram: {name}',
             ))
-        for name in self.layers.keys():
+        for name in self.quantized.keys():
             quantized_percentile_100 = self.quantized[name][-1]
             _plot_bins(name, quantized_trials=quantized_percentile_100)
         _plot_bins('input', quantized_trials=[self.quantized['input']])
