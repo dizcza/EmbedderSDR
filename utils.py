@@ -5,12 +5,11 @@ from pathlib import Path
 from typing import Tuple
 
 import torch
-import torch.nn as nn
 import torch.utils.data
 from torchvision import transforms, datasets
 from tqdm import tqdm
 
-from constants import DATA_DIR, MODELS_DIR, MARGIN
+from constants import DATA_DIR, MODELS_DIR
 from monitor.var_online import dataset_mean_std
 
 
@@ -81,42 +80,6 @@ class NormalizeFromDataset(transforms.Normalize):
         mean, std = dataset_mean_std(dataset_cls=dataset_cls)
         std += 1e-6
         super().__init__(mean=mean, std=std)
-
-
-class ContrastiveLabeledLoss(nn.Module):
-    """
-    Even though this loss uses Euclidean distance, it's equivalent to l0 loss, since we apply KWinnersTakeAll.
-    """
-
-    def __init__(self, same_only=True):
-        """
-        :param same_only: use same-only or include same-other classes loss?
-        """
-        super().__init__()
-        self.same_only = same_only
-
-    def extra_repr(self):
-        return f'same_only={self.same_only}'
-
-    def forward(self, outputs, labels):
-        loss = 0
-        for label_unique in labels.unique():
-            outputs_same_label = outputs[labels == label_unique]
-            if len(outputs_same_label) < 2:
-                continue
-            diff = outputs_same_label[1:] - outputs_same_label[0]
-            euclidean_dist = torch.sum(torch.pow(diff, 2), dim=1)
-            loss += euclidean_dist.mean()
-
-            if not self.same_only:
-                outputs_other_label = outputs[labels != label_unique]
-                n_take = min(len(outputs_same_label), len(outputs_other_label))
-                diff = outputs_other_label[:n_take] - outputs_same_label[:n_take]
-                euclidean_dist = torch.sum(torch.pow(diff, 2), dim=1)
-                euclidean_dist = torch.max(torch.zeros(len(euclidean_dist)), MARGIN - euclidean_dist)
-                loss += euclidean_dist.mean()
-
-        return loss
 
 
 class MNISTSmall(torch.utils.data.TensorDataset):
