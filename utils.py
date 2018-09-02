@@ -57,6 +57,8 @@ def get_data_loader(dataset: str, train=True, batch_size=256) -> torch.utils.dat
     else:
         if dataset == "MNIST":
             dataset_cls = datasets.MNIST
+        elif dataset == "FashionMNIST":
+            dataset_cls = datasets.FashionMNIST
         elif dataset == "CIFAR10":
             dataset_cls = datasets.CIFAR10
         else:

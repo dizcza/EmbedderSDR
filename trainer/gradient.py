@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.utils.data
 from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
 
+from model import KWinnersTakeAllSoft
 from trainer.trainer import Trainer
 
 
@@ -25,6 +26,17 @@ class TrainerGrad(Trainer):
                 ylabel='Learning rate',
                 title='Learning rate',
                 ytype='log',
+            ))
+        self.register_kwta_hardness(self.model)
+
+    def register_kwta_hardness(self, layer: nn.Module):
+        for child in layer.children():
+            self.register_kwta_hardness(child)
+        if isinstance(layer, KWinnersTakeAllSoft):
+            self.monitor.register_func(lambda: layer.hardness.item(), opts=dict(
+                xlabel='Epoch',
+                ylabel='hardness',
+                title='KWinnersTakeAllSoft hardness parameter'
             ))
 
     def log_trainer(self):

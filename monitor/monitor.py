@@ -199,8 +199,8 @@ class Monitor(object):
         # self.update_accuracy_test(model)
         # self.update_distribution()
         self.mutual_info.plot(self.viz)
-        # for func_id, (func, opts) in enumerate(self.functions):
-        #     self.viz.line_update(y=func(), win=f"func_{func_id}", opts=opts)
+        for func_id, (func, opts) in enumerate(self.functions):
+            self.viz.line_update(y=func(), opts=opts)
         # statistics below require monitored parameters
         # self.param_records.plot_sign_flips(self.viz)
         # self.update_gradient_mean_std()
