@@ -71,9 +71,9 @@ class ContrastiveLossBatch(ContrastiveLoss):
         outputs_sorted = {}
         labels_unique = labels.unique()
         for label in labels_unique:
-            outputs_sorted[label] = outputs[labels == label]
+            outputs_sorted[label.item()] = outputs[labels == label]
         for label_id, label_same in enumerate(labels_unique):
-            outputs_same_label = outputs_sorted[label_same]
+            outputs_same_label = outputs_sorted[label_same.item()]
             n_same = len(outputs_same_label)
             if n_same > 1:
                 dist = self.distance(outputs_same_label[1:], outputs_same_label[:-1], is_same=True)
@@ -81,7 +81,7 @@ class ContrastiveLossBatch(ContrastiveLoss):
 
             if not self.same_only:
                 for label_other in labels_unique[label_id+1:]:
-                    outputs_other_label = outputs_sorted[label_other]
+                    outputs_other_label = outputs_sorted[label_other.item()]
                     n_other = len(outputs_other_label)
                     n_max = max(n_same, n_other)
                     idx_same = torch.arange(n_max) % n_same
@@ -91,7 +91,8 @@ class ContrastiveLossBatch(ContrastiveLoss):
                     dist_other.append(dist)
 
         loss_same = torch.cat(dist_same).mean()
-        dist_other = torch.cat(dist_other)
+        if len(dist_other) > 0:
+            dist_other = torch.cat(dist_other)
         if len(dist_other) > 0:
             loss_other = dist_other.mean()
         else:
