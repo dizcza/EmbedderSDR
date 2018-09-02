@@ -9,13 +9,14 @@ from constants import MAX_L0_DIST
 
 class ContrastiveLoss(nn.Module, ABC):
 
-    def __init__(self, same_only=False, metric='cosine'):
+    def __init__(self, same_only=False, metric='cosine', eps=1e-7):
         """
         :param same_only: use same-only or include same-other classes loss?
         """
         super().__init__()
         self.same_only = same_only
         self.metric = metric
+        self.eps = eps
         if self.metric == 'cosine':
             self.margin = 0.5
         else:
@@ -67,9 +68,12 @@ class ContrastiveLossBatch(ContrastiveLoss):
     def forward(self, outputs, labels):
         dist_same = []
         dist_other = []
-        labels_unique = sorted(labels.unique())
+        outputs_sorted = {}
+        labels_unique = labels.unique()
+        for label in labels_unique:
+            outputs_sorted[label] = outputs[labels == label]
         for label_id, label_same in enumerate(labels_unique):
-            outputs_same_label = outputs[labels == label_same]
+            outputs_same_label = outputs_sorted[label_same]
             n_same = len(outputs_same_label)
             if n_same > 1:
                 dist = self.distance(outputs_same_label[1:], outputs_same_label[:-1], is_same=True)
@@ -77,17 +81,19 @@ class ContrastiveLossBatch(ContrastiveLoss):
 
             if not self.same_only:
                 for label_other in labels_unique[label_id+1:]:
-                    outputs_other_label = outputs[labels == label_other]
+                    outputs_other_label = outputs_sorted[label_other]
                     n_other = len(outputs_other_label)
                     n_max = max(n_same, n_other)
                     idx_same = torch.arange(n_max) % n_same
                     idx_other = torch.arange(n_max) % n_other
                     dist = self.distance(outputs_other_label[idx_other], outputs_same_label[idx_same], is_same=False)
+                    dist = dist[dist > self.eps]
                     dist_other.append(dist)
 
         loss_same = torch.cat(dist_same).mean()
+        dist_other = torch.cat(dist_other)
         if len(dist_other) > 0:
-            loss_other = torch.cat(dist_other).mean()
+            loss_other = dist_other.mean()
         else:
             loss_other = 0
         loss = loss_same + loss_other
