@@ -1,20 +1,20 @@
-import copy
 import time
 import warnings
 from abc import ABC, abstractmethod
+from functools import partial, update_wrapper
 
 import torch
 import torch.nn as nn
 import torch.utils.data
 from tqdm import tqdm
 
-from constants import MODELS_DIR, ROOT_DIR
-from monitor.accuracy import calc_accuracy, get_outputs
+from constants import ROOT_DIR
+from model import KWinnersTakeAll, BinarizeWeights
+from monitor.accuracy import get_outputs, calc_raw_accuracy
 from monitor.batch_timer import timer
 from monitor.monitor import Monitor
 from trainer.checkpoint import Checkpoint
-from utils import get_data_loader, load_model_state
-from model import KWinnersTakeAll, BinarizeWeights
+from utils import get_data_loader
 
 
 class Trainer(ABC):
@@ -36,30 +36,8 @@ class Trainer(ABC):
     def log_trainer(self):
         self.monitor.log(f"Criterion: {self.criterion}")
 
-    def save_model(self, accuracy: float = None):
-        model_path = MODELS_DIR.joinpath(self.dataset_name, self.model.__class__.__name__).with_suffix('.pt')
-        model_path.parent.mkdir(exist_ok=True, parents=True)
-        torch.save(self.model.state_dict(), model_path)
-        msg = f"Saved to {model_path}"
-        if accuracy is not None:
-            msg += f" (train accuracy: {accuracy:.4f})"
-        print(msg)
-
     def reset_checkpoint(self):
         self.checkpoint.reset(model=self.model)
-
-    def load_best_accuracy(self) -> float:
-        best_accuracy = 0.
-        try:
-            model_state = load_model_state(self.dataset_name, self.model.__class__.__name__)
-            loaded_model = copy.deepcopy(self.model)
-            loaded_model.load_state_dict(model_state)
-            loaded_model.eval()
-            best_accuracy = calc_accuracy(loaded_model, self.train_loader)
-            del loaded_model
-        except Exception as e:
-            print(f"Couldn't estimate the best accuracy for {self.model.__class__.__name__}. Reset to 0.")
-        return best_accuracy
 
     def _monitor_parameters(self, layer: nn.Module, prefix=''):
         for name, child in layer.named_children():
@@ -85,10 +63,9 @@ class Trainer(ABC):
             for param in layer.parameters():
                 param.data.clamp_(min=a_min, max=a_max)
 
-    def train(self, n_epoch=10, save=True, epoch_update_step=1, with_mutual_info=False, watch_parameters=False):
+    def train(self, n_epoch=10, epoch_update_step=1, with_mutual_info=False, watch_parameters=False):
         """
         :param n_epoch: number of training epochs
-        :param save: save the trained model?
         :param epoch_update_step: epoch step to run full evaluation
         :param with_mutual_info: plot the mutual information of layer activations?
         :param watch_parameters: turn on/off excessive parameters monitoring
@@ -99,22 +76,20 @@ class Trainer(ABC):
         use_cuda = torch.cuda.is_available()
         if use_cuda:
             self.model.cuda()
-        if save:
-            best_accuracy = self.load_best_accuracy()
-        else:
-            best_accuracy = 0.
-        self.monitor.log(f"Best train accuracy so far: {best_accuracy:.4f}")
-        print(f"Training '{self.model.__class__.__name__}'. "
-              f"Best {self.dataset_name} train accuracy so far: {best_accuracy:.4f}")
+        accuracy_message = f"Raw input centroids accuracy: {calc_raw_accuracy(self.train_loader):.3f}"
+        self.monitor.log(accuracy_message)
+        print(f"Training '{self.model.__class__.__name__}'. {accuracy_message}")
 
         eval_loader = torch.utils.data.DataLoader(dataset=self.train_loader.dataset,
                                                   batch_size=self.train_loader.batch_size,
                                                   shuffle=False,
                                                   num_workers=self.train_loader.num_workers)
 
+        get_outputs_eval = partial(get_outputs, loader=eval_loader)
+        update_wrapper(wrapper=get_outputs_eval, wrapped=get_outputs)
+
         if with_mutual_info:
-            global get_outputs
-            get_outputs = self.monitor.mutual_info.decorate_evaluation(get_outputs)
+            get_outputs_eval = self.monitor.mutual_info.decorate_evaluation(get_outputs_eval)
             self.monitor.mutual_info.prepare(eval_loader)
         self.monitor.set_watch_mode(watch_parameters)
 
@@ -140,16 +115,6 @@ class Trainer(ABC):
 
             if epoch % epoch_update_step == 0:
                 self.monitor.update_loss(loss=loss.item(), mode='batch')
-                # self.monitor.update_accuracy(argmax_accuracy(outputs, labels), mode='batch')
-                outputs_full, labels_full = get_outputs(self.model, eval_loader)
-                self.monitor.activations_heatmap(outputs_full, labels_full)
-                # accuracy = argmax_accuracy(outputs_full, labels_full)
-                # self.monitor.update_accuracy(accuracy, mode='full train')
-                # if accuracy > best_accuracy:
-                #     if save:
-                #         self.save_model(accuracy)
-                #     best_accuracy = accuracy
-                #     self.monitor.log(f"Epoch {epoch}. Best train accuracy so far: {best_accuracy:.4f}")
-
-                self.monitor.epoch_finished(self.model)
+                outputs_full, labels_full = get_outputs_eval(self.model)
+                self.monitor.epoch_finished(self.model, outputs_full, labels_full)
                 self._epoch_finished(epoch, outputs_full, labels_full)

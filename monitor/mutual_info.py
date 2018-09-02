@@ -70,15 +70,15 @@ class MutualInfoBin(ABC):
                     break
         self.finish_listening()
 
-    def decorate_evaluation(self, get_outputs: Callable):
-        @wraps(get_outputs)
+    def decorate_evaluation(self, get_outputs_old: Callable):
+        @wraps(get_outputs_old)
         def get_outputs_wrapped(*args, **kwargs):
             self.start_listening()
-            outputs = get_outputs(*args, **kwargs)
+            outputs = get_outputs_old(*args, **kwargs)
             self.finish_listening()
             return outputs
 
-        print(f"Decorated '{get_outputs.__name__}' function to save layer activations for MI estimation")
+        print(f"Decorated '{get_outputs_old.__name__}' function to save layer activations for MI estimation")
         return get_outputs_wrapped
 
     def prepare(self, loader: torch.utils.data.DataLoader):

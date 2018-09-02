@@ -20,7 +20,7 @@ class VisdomMighty(visdom.Visdom):
         self.log(f"Batches in epoch: {timer.batches_in_epoch}")
         self.legends = defaultdict(list)
         self.register_plot(win='Loss', legend=['batch', 'full train'])
-        # self.register_plot(win='Accuracy', legend=['batch', 'full train', 'full test'])
+        self.register_plot(win='Accuracy', legend=['full train', 'full test'])
 
     def register_plot(self, win: str, legend: Iterable[str]):
         legend = list(legend)

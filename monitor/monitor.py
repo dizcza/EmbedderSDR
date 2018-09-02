@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.utils.data
 from sklearn.metrics.pairwise import manhattan_distances
 
-from monitor.accuracy import calc_accuracy
+from monitor.accuracy import calc_accuracy_overlap, get_class_centroids, get_outputs
 from monitor.batch_timer import timer, Schedule
 from monitor.mutual_info import MutualInfoKMeans
 from monitor.var_online import VarianceOnline
@@ -154,8 +154,10 @@ class Monitor(object):
         ), name=mode)
 
     @Schedule(epoch_update=1)
-    def update_accuracy_test(self, model: nn.Module):
-        self.update_accuracy(accuracy=calc_accuracy(model, self.test_loader), mode='full test')
+    def update_accuracy_test(self, model: nn.Module, embedding_centroids: torch.FloatTensor):
+        outputs_test, labels_test = get_outputs(model, loader=self.test_loader)
+        self.update_accuracy(accuracy=calc_accuracy_overlap(embedding_centroids, outputs_test, labels_test),
+                             mode='full test')
 
     def register_func(self, func: Callable, opts: dict = None):
         self.functions.append((func, opts))
@@ -195,8 +197,11 @@ class Monitor(object):
                 ytype='log',
             ))
 
-    def epoch_finished(self, model: nn.Module):
-        # self.update_accuracy_test(model)
+    def epoch_finished(self, model: nn.Module, outputs_full, labels_full):
+        embedding_centroids = get_class_centroids(outputs_full, labels_full)
+        self.update_accuracy(accuracy=calc_accuracy_overlap(embedding_centroids, outputs_full, labels_full),
+                             mode='full train')
+        self.update_accuracy_test(model, embedding_centroids)
         # self.update_distribution()
         self.mutual_info.plot(self.viz)
         for func_id, (func, opts) in enumerate(self.functions):
@@ -206,6 +211,7 @@ class Monitor(object):
         # self.update_gradient_mean_std()
         self.update_initial_difference()
         self.update_grad_norm()
+        self.activations_heatmap(outputs_full, labels_full)
         # self.update_heatmap_history(model, by_dim=False)
 
     def register_layer(self, layer: nn.Module, prefix: str):

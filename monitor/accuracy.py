@@ -2,14 +2,6 @@ import torch
 import torch.nn as nn
 import torch.utils.data
 
-from utils import get_data_loader
-
-
-def argmax_accuracy(outputs, labels) -> float:
-    _, labels_predicted = torch.max(outputs.data, 1)
-    accuracy = torch.sum(labels.data == labels_predicted) / len(labels)
-    return accuracy
-
 
 def get_outputs(model: nn.Module, loader: torch.utils.data.DataLoader):
     mode_saved = model.training
@@ -33,15 +25,33 @@ def get_outputs(model: nn.Module, loader: torch.utils.data.DataLoader):
     return outputs_full, labels_full
 
 
-def calc_accuracy(model: nn.Module, loader: torch.utils.data.DataLoader) -> float:
-    if model is None:
-        return 0.0
-    outputs, labels = get_outputs(model, loader)
-    accuracy = argmax_accuracy(outputs, labels)
-    return accuracy
+def get_class_centroids(vectors: torch.FloatTensor, labels) -> torch.FloatTensor:
+    assert len(vectors) == len(labels)
+    centroids = []
+    for label in labels.unique(sorted=True):
+        centroids.append(vectors[labels == label].mean(dim=0))
+    centroids = torch.stack(centroids, dim=0)
+    return centroids
 
 
-def test(model: nn.Module, dataset_name: str,  train=False):
-    loader = get_data_loader(dataset=dataset_name, train=train)
-    accur = calc_accuracy(model, loader)
-    print(f"Model={model.__class__.__name__} dataset={dataset_name} train={train} accuracy: {accur:.4f}")
+def calc_accuracy_overlap(centroids: torch.FloatTensor, vectors_test: torch.FloatTensor, labels_test) -> float:
+    vectors_test = vectors_test.transpose(dim0=0, dim1=1)
+    overlaps = centroids @ vectors_test
+    labels_predicted = overlaps.argmax(dim=0)
+    accuracy = (labels_test == labels_predicted).type(torch.FloatTensor).mean()
+    return accuracy.item()
+
+
+def calc_raw_accuracy(loader: torch.utils.data.DataLoader) -> float:
+    inputs_full = []
+    labels_full = []
+    for inputs, labels in iter(loader):
+        inputs_full.append(inputs)
+        labels_full.append(labels)
+    inputs_full = torch.cat(inputs_full, dim=0)
+    labels_full = torch.cat(labels_full, dim=0)
+    inputs_full = inputs_full.view(inputs_full.shape[0], -1)
+    input_centroids = get_class_centroids(inputs_full, labels_full)
+    accuracy_input = calc_accuracy_overlap(centroids=input_centroids, vectors_test=inputs_full,
+                                           labels_test=labels_full)
+    return accuracy_input
