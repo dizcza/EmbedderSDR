@@ -36,7 +36,7 @@ class MutualInfoBin(ABC):
         self.n_percentiles = n_percentiles
         self.n_trials = n_trials
         self.debug = debug
-        self.n_bins = defaultdict(lambda: MutualInfoBin.n_bins_default)
+        self.n_bins = {}
         self.compression = {}
         self.max_trials_adjust = 10
         self.layers = {}
@@ -107,7 +107,7 @@ class MutualInfoBin(ABC):
             layer.forward = forward_orig
         self.is_active = False
         for hname in tuple(self.activations.keys()):
-            self.process(layer_name=hname, activations=self.activations.pop(hname))
+            self.process(layer_name=hname, activations=self.activations[hname])
 
     def _wrap_forward(self, layer_name, forward_orig):
         def forward_and_save(input):
@@ -182,9 +182,14 @@ class MutualInfoBin(ABC):
                 title=f'MI quantized histogram: {name}',
             ))
         for name in self.quantized.keys():
-            quantized_percentile_100 = self.quantized[name][-1]
-            _plot_bins(name, quantized_trials=quantized_percentile_100)
-        _plot_bins('input', quantized_trials=[self.quantized['input']])
+            if name == 'target':
+                continue
+            elif name == 'input':
+                quantized_trials = [self.quantized[name]]
+            else:
+                quantized_percentile_100 = self.quantized[name][-1]
+                quantized_trials = quantized_percentile_100
+            _plot_bins(name, quantized_trials=quantized_trials)
 
     def plot_compression(self, viz):
         viz.bar(X=list(self.compression.values()), win=f'compression', opts=dict(
@@ -207,6 +212,16 @@ class MutualInfoBin(ABC):
             legend=legend,
         ))
 
+    def plot_activations_hist(self, viz):
+        for hname, activations in self.activations.items():
+            title = f'Activations histogram: {hname}'
+            activations = torch.cat(activations, dim=0)
+            viz.histogram(activations.view(-1), win=title, opts=dict(
+                xlabel='neuron value',
+                ylabel='neuron counts',
+                title=title,
+            ))
+
     def plot(self, viz):
         assert not self.is_active, "Wait, not finished yet."
         if len(self.information) == 0:
@@ -214,6 +229,7 @@ class MutualInfoBin(ABC):
         if self.debug:
             self.plot_quantized_hist(viz)
             self.plot_compression(viz)
+            self.plot_activations_hist(viz)
         if self.n_percentiles > 1:
             self.plot_information_percentiles(viz)
         legend = []
@@ -232,9 +248,10 @@ class MutualInfoBin(ABC):
             legend=legend,
         ), update='append' if viz.win_exists(title) else None)
         self.information.clear()
+        self.activations.clear()
 
     def adjust_bins(self, layer_name: str, activations: torch.FloatTensor):
-        n_bins = self.n_bins[layer_name]
+        n_bins = self.n_bins_default
         compression_min, compression_max = self.compression_range
         for trial in range(self.max_trials_adjust):
             quantized = self.quantize(activations, n_bins)
