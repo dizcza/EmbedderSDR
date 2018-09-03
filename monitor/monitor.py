@@ -309,8 +309,6 @@ class Monitor(object):
             ylabel='Label',
             rownames=label_names,
         )
-        if outputs_mean.shape[0] <= self.n_classes_format_ytickstep_1:
-            opts.update(ytickstep=1)
         self.viz.heatmap(outputs_mean, win=win, opts=opts)
         l1_dist = manhattan_distances(outputs_mean)
         upper_triangle_idx = np.triu_indices_from(l1_dist, k=1)

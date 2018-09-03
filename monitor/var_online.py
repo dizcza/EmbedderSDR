@@ -40,17 +40,16 @@ class VarianceOnline(object):
         self.count = 0
 
 
-def dataset_mean_std(dataset_cls: type, batch_size=256):
+def dataset_mean_std(dataset_cls: type):
     """
     :param dataset_cls: class type of torch.utils.data.Dataset
-    :param batch_size: batch size
     :return: samples' mean and std per channel, estimated from a training set
     """
     mean_std_file = DATA_DIR / "mean_std" / dataset_cls.__name__
     mean_std_file = mean_std_file.with_suffix('.pt')
     if not mean_std_file.exists():
         dataset = dataset_cls(DATA_DIR, train=True, download=True, transform=transforms.ToTensor())
-        loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+        loader = torch.utils.data.DataLoader(dataset, batch_size=32, shuffle=False, num_workers=4)
         var_online = VarianceOnline()
         for images, labels in tqdm(loader, desc=f"{dataset_cls.__name__}: running online mean, std"):
             for image in images:
