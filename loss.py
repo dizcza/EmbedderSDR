@@ -65,6 +65,16 @@ class ContrastiveLossAnchor(ContrastiveLoss):
 
 class ContrastiveLossBatch(ContrastiveLoss):
 
+    @staticmethod
+    def half_majority_mean(distances: torch.FloatTensor):
+        if len(distances) == 0:
+            return 0
+        distances, argsort_ignored = distances.sort(descending=True)
+        n_take = len(distances)
+        if n_take > 1:
+            n_take = n_take // 2
+        return distances[: n_take].mean()
+
     def forward(self, outputs, labels):
         dist_same = []
         dist_other = []
@@ -90,11 +100,12 @@ class ContrastiveLossBatch(ContrastiveLoss):
                     dist = dist[dist > self.eps]
                     dist_other.append(dist)
 
+        # loss_same = self.half_majority_mean(torch.cat(dist_same))
         loss_same = torch.cat(dist_same).mean()
+        dist_other = tuple(filter(len, dist_other))
         if len(dist_other) > 0:
-            dist_other = torch.cat(dist_other)
-        if len(dist_other) > 0:
-            loss_other = dist_other.mean()
+            loss_other = torch.cat(dist_other).mean()
+            # loss_other = self.half_majority_mean(torch.cat(dist_other))
         else:
             loss_other = 0
         loss = loss_same + loss_other
