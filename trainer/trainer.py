@@ -10,37 +10,32 @@ from tqdm import tqdm
 
 from constants import ROOT_DIR
 from loss import ContrastiveLoss, ContrastiveLossBatch
-from model import KWinnersTakeAll, KWinnersTakeAllSoft, BinarizeWeights
 from monitor.accuracy import get_outputs, calc_raw_accuracy
 from monitor.batch_timer import timer
 from monitor.monitor import Monitor
 from trainer.checkpoint import Checkpoint
-from utils import get_data_loader, find_layers, create_pairs
+from utils import get_data_loader, create_pairs
 
 
 class Trainer(ABC):
 
-    watch_modules = (nn.Linear, nn.Conv2d, KWinnersTakeAll, BinarizeWeights)
+    watch_modules = (nn.Linear, nn.Conv2d)
 
-    def __init__(self, model: nn.Module, criterion: nn.Module, dataset_name: str, patience=None,
-                 project_name=ROOT_DIR.name):
+    def __init__(self, model: nn.Module, criterion: nn.Module, dataset_name: str, patience=None):
         self.model = model
         self.criterion = criterion
         self.dataset_name = dataset_name
         self.train_loader = get_data_loader(dataset_name, train=True)
         timer.init(batches_in_epoch=len(self.train_loader))
-        env_name = f"{time.strftime('%Y.%m.%d')} {project_name}: {self.dataset_name} {self.__class__.__name__}"
-        kwta_layers = tuple(find_layers(self.model, layer_class=KWinnersTakeAll))
-        if len(kwta_layers) > 0:
-            env_name += " kwta"
-        self.monitor = Monitor(test_loader=get_data_loader(self.dataset_name, train=False), env_name=env_name)
+        self.monitor = Monitor(test_loader=get_data_loader(self.dataset_name, train=False), env_name=self.env_name)
         self._monitor_parameters(self.model)
         self.checkpoint = Checkpoint(model=self.model, patience=patience)
-        self.monitor.register_func(lambda: [layer.hardness.item() for layer in find_layers(self.model, layer_class=KWinnersTakeAllSoft)], opts=dict(
-            xlabel='Epoch',
-            ylabel='hardness',
-            title='k-winner-take-all hardness parameter'
-        ))
+
+    @property
+    def env_name(self) -> str:
+        env_name = f"{time.strftime('%Y.%m.%d')} {ROOT_DIR.name}: {self.dataset_name} {self.__class__.__name__}"
+        env_name = env_name.replace('_', '-')  # visdom things
+        return env_name
 
     def log_trainer(self):
         self.monitor.log(f"Criterion: {self.criterion}")
@@ -70,12 +65,6 @@ class Trainer(ABC):
         self.monitor.update_loss(loss, mode='full train')
         self.checkpoint.step(model=self.model, loss=loss)
         return loss
-
-    @staticmethod
-    def clamp_params(layer: nn.Module, a_min=0, a_max=1):
-        for layer in find_layers(layer, layer_class=BinarizeWeights):
-            for param in layer.parameters():
-                param.data.clamp_(min=a_min, max=a_max)
 
     def train(self, n_epoch=10, epoch_update_step=1, with_mutual_info=False, watch_parameters=False):
         """

@@ -4,7 +4,6 @@ import torch.nn as nn
 import torch.utils.data
 from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
 
-from model import KWinnersTakeAllSoft
 from trainer.trainer import Trainer
 
 
