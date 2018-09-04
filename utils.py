@@ -1,10 +1,12 @@
 import math
+import random
 import time
 from functools import lru_cache, wraps
 from pathlib import Path
-from typing import Tuple
+from typing import Tuple, Iterable
 
 import torch
+import torch.nn as nn
 import torch.utils.data
 from torchvision import transforms, datasets
 from tqdm import tqdm
@@ -54,17 +56,19 @@ def get_data_loader(dataset: str, train=True, batch_size=256) -> torch.utils.dat
         dataset = MNIST56(train=train)
     elif dataset == "FashionMNIST56":
         dataset = FashionMNIST56(train=train)
+    elif dataset == "CIFAR10_56":
+        dataset = CIFAR10_56(train=train)
     else:
         if dataset == "MNIST":
-            dataset_cls = datasets.MNIST
+            dataset_class = datasets.MNIST
         elif dataset == "FashionMNIST":
-            dataset_cls = datasets.FashionMNIST
+            dataset_class = datasets.FashionMNIST
         elif dataset == "CIFAR10":
-            dataset_cls = datasets.CIFAR10
+            dataset_class = datasets.CIFAR10
         else:
             raise NotImplementedError()
-        transform = transforms.Compose([transforms.ToTensor(), NormalizeFromDataset(dataset_cls=dataset_cls)])
-        dataset = dataset_cls(DATA_DIR, train=train, download=True, transform=transform)
+        transform = transforms.Compose([transforms.ToTensor(), NormalizeFromDataset(dataset_cls=dataset_class)])
+        dataset = dataset_class(DATA_DIR, train=train, download=True, transform=transform)
     loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
     return loader
 
@@ -76,7 +80,18 @@ def load_model_state(dataset_name: str, model_name: str):
     return torch.load(model_path)
 
 
+def find_layers(model: nn.Module, layer_class):
+    for layer in model.children():
+        yield from find_layers(layer, layer_class)
+    if isinstance(model, layer_class):
+        yield model
+
+
 class NormalizeFromDataset(transforms.Normalize):
+    """
+    Normalize dataset by subtracting channel-wise and pixel-wise mean and dividing by STD.
+    Mean and STD are estimated from a training set only.
+    """
 
     def __init__(self, dataset_cls: type):
         mean, std = dataset_mean_std(dataset_cls=dataset_cls)
@@ -84,7 +99,32 @@ class NormalizeFromDataset(transforms.Normalize):
         super().__init__(mean=mean, std=std)
 
 
-class MNISTSmall(torch.utils.data.TensorDataset):
+def create_pairs(images, labels):
+    labels_unique = labels.unique()
+    n_classes = len(labels_unique)
+    pairs_left, pairs_right, targets = [], [], []
+    images_sorted = list(images[labels == label] for label in labels_unique)
+    for label_id in range(len(labels_unique)):
+        images_positive = images_sorted[label_id]
+
+        pairs_left.extend(images_positive[:-1])
+        pairs_right.extend(images_positive[1:])
+        targets.extend(torch.ones(len(images_positive)-1))
+
+        pairs_left.extend(images_positive)
+        for trial in range(len(images_positive)):
+            increment = random.randrange(1, n_classes)
+            image_negative = random.choice(images_sorted[(label_id + increment) % n_classes])
+            pairs_right.append(image_negative)
+        targets.extend(torch.ones(len(images_positive)) * -1)
+
+    pairs_left = torch.stack(pairs_left, dim=0)
+    pairs_right = torch.stack(pairs_right, dim=0)
+    targets = torch.stack(targets)
+    return pairs_left, pairs_right, targets
+
+
+class DataSubset(torch.utils.data.TensorDataset):
 
     def __init__(self, dataset_cls, labels_keep: Tuple, train: bool):
         self.labels_keep = labels_keep
@@ -121,7 +161,7 @@ class MNISTSmall(torch.utils.data.TensorDataset):
         print(f"Saved preprocessed data to {data_path}")
 
 
-class MNIST56(MNISTSmall):
+class MNIST56(DataSubset):
     """
     MNIST 5 and 6 digits.
     """
@@ -129,9 +169,17 @@ class MNIST56(MNISTSmall):
         super().__init__(dataset_cls=datasets.MNIST, labels_keep=(5, 6), train=train)
 
 
-class FashionMNIST56(MNISTSmall):
+class FashionMNIST56(DataSubset):
     """
-    FashionMNIST 5 and 6 class.
+    FashionMNIST 5 and 6 classes.
     """
     def __init__(self, train=True):
         super().__init__(dataset_cls=datasets.FashionMNIST, labels_keep=(5, 6), train=train)
+
+
+class CIFAR10_56(DataSubset):
+    """
+    CIFAR10 5 and 6 classes.
+    """
+    def __init__(self, train=True):
+        super().__init__(dataset_cls=datasets.CIFAR10, labels_keep=(5, 6), train=train)

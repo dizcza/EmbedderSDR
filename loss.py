@@ -1,4 +1,5 @@
 from abc import ABC
+import math
 
 import torch
 import torch.nn as nn
@@ -70,9 +71,7 @@ class ContrastiveLossBatch(ContrastiveLoss):
         if len(distances) == 0:
             return 0
         distances, argsort_ignored = distances.sort(descending=True)
-        n_take = len(distances)
-        if n_take > 1:
-            n_take = n_take // 2
+        n_take = math.ceil(len(distances) / 2.)
         return distances[: n_take].mean()
 
     def forward(self, outputs, labels):

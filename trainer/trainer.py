@@ -9,12 +9,13 @@ import torch.utils.data
 from tqdm import tqdm
 
 from constants import ROOT_DIR
-from model import KWinnersTakeAll, BinarizeWeights
+from loss import ContrastiveLoss, ContrastiveLossBatch
+from model import KWinnersTakeAll, KWinnersTakeAllSoft, BinarizeWeights
 from monitor.accuracy import get_outputs, calc_raw_accuracy
 from monitor.batch_timer import timer
 from monitor.monitor import Monitor
 from trainer.checkpoint import Checkpoint
-from utils import get_data_loader
+from utils import get_data_loader, find_layers, create_pairs
 
 
 class Trainer(ABC):
@@ -29,9 +30,17 @@ class Trainer(ABC):
         self.train_loader = get_data_loader(dataset_name, train=True)
         timer.init(batches_in_epoch=len(self.train_loader))
         env_name = f"{time.strftime('%Y.%m.%d')} {project_name}: {self.dataset_name} {self.__class__.__name__}"
+        kwta_layers = tuple(find_layers(self.model, layer_class=KWinnersTakeAll))
+        if len(kwta_layers) > 0:
+            env_name += " kwta"
         self.monitor = Monitor(test_loader=get_data_loader(self.dataset_name, train=False), env_name=env_name)
         self._monitor_parameters(self.model)
         self.checkpoint = Checkpoint(model=self.model, patience=patience)
+        self.monitor.register_func(lambda: [layer.hardness.item() for layer in find_layers(self.model, layer_class=KWinnersTakeAllSoft)], opts=dict(
+            xlabel='Epoch',
+            ylabel='hardness',
+            title='k-winner-take-all hardness parameter'
+        ))
 
     def log_trainer(self):
         self.monitor.log(f"Criterion: {self.criterion}")
@@ -49,17 +58,22 @@ class Trainer(ABC):
     def train_batch(self, images, labels):
         raise NotImplementedError()
 
+    def train_batch_pairs(self, pairs_left, pairs_right, targets):
+        raise NotImplementedError()
+
     def _epoch_finished(self, epoch, outputs, labels) -> torch.Tensor:
-        loss = self.criterion(outputs, labels).item()
+        if isinstance(self.criterion, ContrastiveLoss):
+            criterion = self.criterion
+        else:
+            criterion = ContrastiveLossBatch(same_only=False)
+        loss = criterion(outputs, labels).item()
         self.monitor.update_loss(loss, mode='full train')
         self.checkpoint.step(model=self.model, loss=loss)
         return loss
 
     @staticmethod
     def clamp_params(layer: nn.Module, a_min=0, a_max=1):
-        for child in layer.children():
-            Trainer.clamp_params(child, a_min=a_min, a_max=a_max)
-        if isinstance(layer, BinarizeWeights):
+        for layer in find_layers(layer, layer_class=BinarizeWeights):
             for param in layer.parameters():
                 param.data.clamp_(min=a_min, max=a_max)
 
@@ -93,6 +107,9 @@ class Trainer(ABC):
             self.monitor.mutual_info.prepare(eval_loader)
         self.monitor.set_watch_mode(watch_parameters)
 
+        # do we need to transform images into pairs?
+        as_pairs = not isinstance(self.criterion, ContrastiveLoss)
+
         for epoch in range(n_epoch):
             labels, outputs, loss = None, None, None
             for images, labels in tqdm(self.train_loader,
@@ -102,7 +119,11 @@ class Trainer(ABC):
                     images = images.cuda()
                     labels = labels.cuda()
 
-                outputs, loss = self.train_batch(images, labels)
+                if as_pairs:
+                    pairs_left, pairs_right, targets = create_pairs(images, labels)
+                    outputs_left, outputs_right, loss = self.train_batch_pairs(pairs_left, pairs_right, targets)
+                else:
+                    outputs, loss = self.train_batch(images, labels)
                 for name, param in self.model.named_parameters():
                     if torch.isnan(param).any():
                         warnings.warn(f"NaN parameters in '{name}'")
@@ -111,7 +132,6 @@ class Trainer(ABC):
                 # uncomment to see more detailed progress - at each batch instead of epoch
                 # self.monitor.activations_heatmap(outputs, labels)
                 # self.monitor.update_loss(loss=loss.item(), mode='batch')
-                # self.monitor.update_accuracy(argmax_accuracy(outputs, labels), mode='batch')
 
             if epoch % epoch_update_step == 0:
                 self.monitor.update_loss(loss=loss.item(), mode='batch')

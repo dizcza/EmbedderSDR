@@ -121,11 +121,19 @@ class Embedder(nn.Module):
         x = self.kwta(x)
         return x
 
-    def __init__(self):
+    def __init__(self, dataset_name="MNIST", conv_channels=3):
         super().__init__()
-        self.conv1 = nn.Conv2d(in_channels=1, out_channels=5, kernel_size=3, bias=False)
-        self.bn1 = nn.BatchNorm2d(num_features=5)
+        if "MNIST" in dataset_name:
+            conv_in_channels = 1
+            linear_in_features = conv_channels * 8 * 8
+        elif "CIFAR10" in dataset_name:
+            conv_in_channels = 3
+            linear_in_features = conv_channels * 10 * 10
+        else:
+            raise NotImplementedError()
+        self.conv1 = nn.Conv2d(in_channels=conv_in_channels, out_channels=conv_channels, kernel_size=3, bias=False)
+        self.bn1 = nn.BatchNorm2d(num_features=conv_channels)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3)
-        self.fc_emb = nn.Linear(in_features=5 * 8 * 8, out_features=EMBEDDING_SIZE, bias=False)
+        self.fc_emb = nn.Linear(in_features=linear_in_features, out_features=EMBEDDING_SIZE, bias=False)
         self.kwta = KWinnersTakeAllSoft()
