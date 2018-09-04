@@ -34,7 +34,7 @@ class ContrastiveLoss(nn.Module, ABC):
             return F.cosine_embedding_loss(input1, input2, target=targets, margin=self.margin, reduction='none')
         else:
             diff = input1 - input2
-            if self.metric == 'euclidean':
+            if self.metric == 'l2':
                 dist = torch.sum(torch.pow(diff, 2), dim=1)
             elif self.metric == 'l1':
                 dist = diff.abs().sum(dim=1)

@@ -121,7 +121,7 @@ class Embedder(nn.Module):
         x = self.kwta(x)
         return x
 
-    def __init__(self, dataset_name="MNIST", conv_channels=3):
+    def __init__(self, dataset_name="MNIST", conv_channels=3, sparsity=SPARSITY):
         super().__init__()
         if "MNIST" in dataset_name:
             conv_in_channels = 1
@@ -136,4 +136,4 @@ class Embedder(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3)
         self.fc_emb = nn.Linear(in_features=linear_in_features, out_features=EMBEDDING_SIZE, bias=False)
-        self.kwta = KWinnersTakeAllSoft()
+        self.kwta = KWinnersTakeAllSoft(sparsity=sparsity)

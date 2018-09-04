@@ -295,28 +295,38 @@ class Monitor(object):
         :param outputs: the last layer activations
         :param labels: corresponding labels
         """
+        def compute_manhattan_dist(tensor: torch.FloatTensor) -> float:
+            l1_dist = manhattan_distances(tensor)
+            upper_triangle_idx = np.triu_indices_from(l1_dist, k=1)
+            l1_dist = l1_dist[upper_triangle_idx].mean()
+            return l1_dist
         outputs = outputs.detach()
-        outputs_mean = []
+        class_centroids = []
+        std_centroids = []
         label_names = []
         for label in sorted(labels.unique()):
-            outputs_mean.append(outputs[labels == label].mean(dim=0))
+            outputs_label = outputs[labels == label]
+            std_centroids.append(outputs_label.std(dim=0))
+            class_centroids.append(outputs_label.mean(dim=0))
             label_names.append(str(label.item()))
         win = "Last layer activations heatmap"
-        outputs_mean = torch.stack(outputs_mean, dim=0)
+        class_centroids = torch.stack(class_centroids, dim=0)
+        std_centroids = torch.stack(std_centroids, dim=0)
         opts = dict(
             title=win,
             xlabel='Embedding dimension',
             ylabel='Label',
             rownames=label_names,
         )
-        if outputs_mean.shape[0] <= self.n_classes_format_ytickstep_1:
+        if class_centroids.shape[0] <= self.n_classes_format_ytickstep_1:
             opts.update(ytickstep=1)
-        self.viz.heatmap(outputs_mean, win=win, opts=opts)
-        l1_dist = manhattan_distances(outputs_mean)
-        upper_triangle_idx = np.triu_indices_from(l1_dist, k=1)
-        l1_dist = l1_dist[upper_triangle_idx].mean()
-        self.viz.line_update(y=l1_dist, opts=dict(
+        self.viz.heatmap(class_centroids, win=win, opts=opts)
+        normalizer = class_centroids.norm(p=1, dim=1).mean()
+        outer_distance = compute_manhattan_dist(class_centroids) / normalizer
+        std = std_centroids.norm(p=1, dim=1).mean() / normalizer
+        self.viz.line_update(y=[outer_distance, std], opts=dict(
             xlabel='Epoch',
-            ylabel='Mean pairwise distance',
+            ylabel='Mean pairwise distance (normalized)',
+            legend=['inter-distance', 'intra-STD'],
             title='How much do patterns differ in L1 measure?',
         ))
