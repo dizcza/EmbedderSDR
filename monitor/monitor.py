@@ -296,7 +296,7 @@ class Monitor(object):
         :param labels: corresponding labels
         """
         def compute_manhattan_dist(tensor: torch.FloatTensor) -> float:
-            l1_dist = manhattan_distances(tensor)
+            l1_dist = manhattan_distances(tensor.cpu())
             upper_triangle_idx = np.triu_indices_from(l1_dist, k=1)
             l1_dist = l1_dist[upper_triangle_idx].mean()
             return l1_dist

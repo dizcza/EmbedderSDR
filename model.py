@@ -109,7 +109,7 @@ class KWinnersTakeAllSoft(KWinnersTakeAll):
             return _KWinnersTakeAllFunction.apply(x, self.sparsity)
 
 
-class Embedder(nn.Module):
+class EmbedderSDR(nn.Module):
 
     def forward(self, x):
         x = self.conv1(x)

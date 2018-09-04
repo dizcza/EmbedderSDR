@@ -33,7 +33,8 @@ class Trainer(ABC):
 
     @property
     def env_name(self) -> str:
-        env_name = f"{time.strftime('%Y.%m.%d')} {ROOT_DIR.name}: {self.dataset_name} {self.__class__.__name__}"
+        env_name = f"{time.strftime('%Y.%m.%d')} {self.model.__class__.__name__}: " \
+                   f"{self.dataset_name} {self.__class__.__name__}"
         env_name = env_name.replace('_', '-')  # visdom things
         return env_name
 
