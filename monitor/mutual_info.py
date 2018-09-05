@@ -36,6 +36,7 @@ class MutualInfoBin(ABC):
         self.n_percentiles = n_percentiles
         self.n_trials = n_trials
         self.debug = debug
+        self.layers_order = []
         self.n_bins = {}
         self.compression = {}
         self.max_trials_adjust = 10
@@ -53,13 +54,11 @@ class MutualInfoBin(ABC):
     def register(self, layer: nn.Module, name: str):
         self.layers[name] = LayerForward(layer, layer.forward)
 
+    @Schedule(epoch_update=0, batch_update=5)
     def force_update(self, model: nn.Module):
         if self.eval_loader is None:
             return
         self.start_listening()
-        if not self.is_active:
-            # we didn't start listening because timer said we need to wait a few batches/epochs more
-            return
         use_cuda = torch.cuda.is_available()
         with torch.no_grad():
             for batch_id, (images, labels) in enumerate(iter(self.eval_loader)):
@@ -81,7 +80,7 @@ class MutualInfoBin(ABC):
         print(f"Decorated '{get_outputs_old.__name__}' function to save layer activations for MI estimation")
         return get_outputs_wrapped
 
-    def prepare(self, loader: torch.utils.data.DataLoader):
+    def prepare(self, loader: torch.utils.data.DataLoader, model: nn.Module, monitor_layers_count=5):
         self.eval_loader = loader
         inputs = []
         targets = []
@@ -90,10 +89,23 @@ class MutualInfoBin(ABC):
             targets.append(labels)
             if len(inputs) * loader.batch_size >= self.estimate_size:
                 break
+        image_sample = inputs[0][0].unsqueeze_(dim=0)
         self.process(layer_name='input', activations=inputs)
         self.process(layer_name='target', activations=targets)
+        self.start_listening()
+        with torch.no_grad():
+            if torch.cuda.is_available():
+                image_sample = image_sample.cuda()
+            model(image_sample)
+        self.activations.clear()  # clear saved activations
+        self.finish_listening()
+        last_layer_names = self.layers_order[-monitor_layers_count:]
+        last_layers = {}
+        for name in last_layer_names:
+            last_layers[name] = self.layers[name]
+        self.layers = last_layers
+        print(f"Monitoring only these last layers for mutual information estimation: {last_layer_names}")
 
-    @Schedule(epoch_update=0, batch_update=5)
     def start_listening(self):
         for name, (layer, forward_orig) in self.layers.items():
             if layer.forward == forward_orig:
@@ -119,7 +131,9 @@ class MutualInfoBin(ABC):
         return forward_and_save
 
     def save_activations(self, layer_name: str, tensor: torch.Tensor):
-        self.activations[layer_name].append(tensor.data.cpu().clone())
+        self.activations[layer_name].append(tensor.cpu().clone())
+        if layer_name not in self.layers_order:
+            self.layers_order.append(layer_name)
 
     def process(self, layer_name: str, activations: List[torch.FloatTensor]):
         activations = torch.cat(activations, dim=0)

@@ -15,9 +15,8 @@ def get_outputs(model: nn.Module, loader: torch.utils.data.DataLoader):
         for inputs, labels in iter(loader):
             if use_cuda:
                 inputs = inputs.cuda()
-                labels = labels.cuda()
             outputs = model(inputs)
-            outputs_full.append(outputs)
+            outputs_full.append(outputs.cpu())
             labels_full.append(labels)
     model.train(mode_saved)
     outputs_full = torch.cat(outputs_full, dim=0)

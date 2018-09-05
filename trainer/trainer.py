@@ -94,7 +94,7 @@ class Trainer(ABC):
 
         if with_mutual_info:
             get_outputs_eval = self.monitor.mutual_info.decorate_evaluation(get_outputs_eval)
-            self.monitor.mutual_info.prepare(eval_loader)
+            self.monitor.mutual_info.prepare(eval_loader, model=self.model, monitor_layers_count=5)
         self.monitor.set_watch_mode(watch_parameters)
 
         # do we need to transform images into pairs?

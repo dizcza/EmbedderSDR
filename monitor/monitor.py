@@ -240,7 +240,7 @@ class Monitor(object):
         for name, param_record in self.param_records.items_monitored():
             grad = param_record.param.grad
             if grad is not None:
-                grad_norms.append(grad.data.norm(p=2))
+                grad_norms.append(grad.norm(p=2).cpu())
                 legend.append(name)
         if len(grad_norms) > 0:
             self.viz.line_update(y=grad_norms, opts=dict(
@@ -324,7 +324,7 @@ class Monitor(object):
         normalizer = class_centroids.norm(p=1, dim=1).mean()
         outer_distance = compute_manhattan_dist(class_centroids) / normalizer
         std = std_centroids.norm(p=1, dim=1).mean() / normalizer
-        self.viz.line_update(y=[outer_distance, std], opts=dict(
+        self.viz.line_update(y=[outer_distance.item(), std.item()], opts=dict(
             xlabel='Epoch',
             ylabel='Mean pairwise distance (normalized)',
             legend=['inter-distance', 'intra-STD'],

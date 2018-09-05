@@ -11,7 +11,7 @@ import torch.utils.data
 from torchvision import transforms, datasets
 from tqdm import tqdm
 
-from constants import DATA_DIR, MODELS_DIR
+from constants import DATA_DIR, MODELS_DIR, BATCH_SIZE
 from monitor.var_online import dataset_mean_std
 
 
@@ -51,7 +51,7 @@ def timer_profile(func):
     return wrapped
 
 
-def get_data_loader(dataset: str, train=True, batch_size=256) -> torch.utils.data.DataLoader:
+def get_data_loader(dataset: str, train=True, batch_size=BATCH_SIZE) -> torch.utils.data.DataLoader:
     if dataset == "MNIST56":
         dataset = MNIST56(train=train)
     elif dataset == "FashionMNIST56":
