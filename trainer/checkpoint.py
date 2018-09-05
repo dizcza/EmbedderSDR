@@ -1,9 +1,9 @@
+import getpass
 import shutil
 import time
 
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
 
 from constants import CHECKPOINTS_DIR
 
@@ -17,11 +17,11 @@ class Checkpoint:
         self.patience = patience
         self.best_loss = float('inf')
         self.num_bad_epochs = 0
-        checkpoint_dir = CHECKPOINTS_DIR.joinpath(time.strftime('%Y.%m.%d'))
+        checkpoint_dir = CHECKPOINTS_DIR / getpass.getuser() / time.strftime('%Y.%m.%d')
         if checkpoint_dir.exists():
             shutil.rmtree(path=checkpoint_dir)
         checkpoint_dir.mkdir(parents=True)
-        self.best_model_path = checkpoint_dir.joinpath(time.strftime('%H-%M-%S_init.pt'))
+        self.best_model_path = checkpoint_dir / time.strftime('%H-%M-%S_init.pt')
         self._save(model)
 
     def _save(self, model: nn.Module):
