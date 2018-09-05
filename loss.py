@@ -27,10 +27,9 @@ class ContrastiveLoss(nn.Module, ABC):
         return f'same_only={self.same_only}, metric={self.metric}, margin={self.margin}'
 
     def distance(self, input1, input2, is_same: bool):
-        use_cuda = torch.cuda.is_available()
         if self.metric == 'cosine':
             targets = torch.ones(max(len(input1), len(input2)))
-            if use_cuda:
+            if input1.is_cuda:
                 targets = targets.cuda()
             if not is_same:
                 targets *= -1
@@ -38,14 +37,14 @@ class ContrastiveLoss(nn.Module, ABC):
         else:
             diff = input1 - input2
             if self.metric == 'l2':
-                dist = torch.sum(torch.pow(diff, 2), dim=1)
+                dist = torch.pow(diff, 2).sum(dim=1)
             elif self.metric == 'l1':
                 dist = diff.abs().sum(dim=1)
             else:
                 raise NotImplementedError()
             if not is_same:
                 zeros = torch.zeros(len(dist))
-                if use_cuda:
+                if dist.is_cuda:
                     zeros = zeros.cuda()
                 dist = torch.max(zeros, self.margin - dist)
             return dist
