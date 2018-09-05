@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.utils.data
 from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
 
-from model import KWinnersTakeAllSoft, KWinnersTakeAll
+from model.kwta import KWinnersTakeAllSoft, KWinnersTakeAll
 from trainer.gradient import TrainerGrad
 from utils import find_layers
 

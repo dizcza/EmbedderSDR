@@ -1,15 +1,17 @@
 import torch
 
-from model import EmbedderSDR
-from trainer.gradient import TrainerGrad
 from trainer.kwta import TrainerGradKWTA, KWTAScheduler
 from utils import set_seed
-from loss import ContrastiveLossBatch, ContrastiveLossAnchor
+from loss import ContrastiveLossBatch
+
+from model.dpn import DPN26
+from model.embedder import EmbedderSDR
 
 
 def train(n_epoch=500, dataset_name="CIFAR10_56"):
     set_seed(26)
     model = EmbedderSDR(dataset_name=dataset_name, sparsity=0.2)
+    # model = DPN26()
     # optimizer = torch.optim.SGD(model.parameters(), lr=1e-2, weight_decay=1e-3)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=10,
