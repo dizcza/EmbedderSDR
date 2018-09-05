@@ -33,10 +33,16 @@ def get_class_centroids(vectors: torch.FloatTensor, labels) -> torch.FloatTensor
     return centroids
 
 
-def calc_accuracy_overlap(centroids: torch.FloatTensor, vectors_test: torch.FloatTensor, labels_test) -> float:
-    vectors_test = vectors_test.transpose(dim0=0, dim1=1)
-    overlaps = centroids @ vectors_test
-    labels_predicted = overlaps.argmax(dim=0)
+def calc_accuracy(centroids: torch.FloatTensor, vectors_test: torch.FloatTensor, labels_test) -> float:
+    """
+    Calculates accuracy based on L1-measure distances between centroids of each class and vectors_test
+    :param centroids: matrix of (n_classes, embedding_dim) shape
+    :param vectors_test: matrix of (n_samples, embedding_dim) shape
+    :param labels_test: true labels, n_samples
+    :return: accuracy
+    """
+    distances = (vectors_test.unsqueeze(dim=1) - centroids).abs_().sum(dim=-1)
+    labels_predicted = distances.argmin(dim=1)
     accuracy = (labels_test == labels_predicted).type(torch.FloatTensor).mean()
     return accuracy.item()
 
@@ -51,6 +57,6 @@ def calc_raw_accuracy(loader: torch.utils.data.DataLoader) -> float:
     labels_full = torch.cat(labels_full, dim=0)
     inputs_full = inputs_full.view(inputs_full.shape[0], -1)
     input_centroids = get_class_centroids(inputs_full, labels_full)
-    accuracy_input = calc_accuracy_overlap(centroids=input_centroids, vectors_test=inputs_full,
-                                           labels_test=labels_full)
+    accuracy_input = calc_accuracy(centroids=input_centroids, vectors_test=inputs_full,
+                                   labels_test=labels_full)
     return accuracy_input

@@ -1,5 +1,6 @@
 from pathlib import Path
 import math
+import os
 
 ROOT_DIR = Path(__file__).parent
 DATA_DIR = ROOT_DIR / "data"
@@ -10,4 +11,4 @@ SPARSITY = 0.05
 EMBEDDING_SIZE = 128
 MAX_L0_DIST = 2 * math.ceil(SPARSITY * EMBEDDING_SIZE)
 
-BATCH_SIZE = 256
+BATCH_SIZE = int(os.environ.get('BATCH_SIZE', 256))

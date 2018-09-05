@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.utils.data
 from sklearn.metrics.pairwise import manhattan_distances
 
-from monitor.accuracy import calc_accuracy_overlap, get_class_centroids, get_outputs
+from monitor.accuracy import calc_accuracy, get_class_centroids, get_outputs
 from monitor.batch_timer import timer, Schedule
 from monitor.mutual_info import MutualInfoKMeans
 from monitor.var_online import VarianceOnline
@@ -156,7 +156,7 @@ class Monitor(object):
     @Schedule(epoch_update=1)
     def update_accuracy_test(self, model: nn.Module, embedding_centroids: torch.FloatTensor):
         outputs_test, labels_test = get_outputs(model, loader=self.test_loader)
-        self.update_accuracy(accuracy=calc_accuracy_overlap(embedding_centroids, outputs_test, labels_test),
+        self.update_accuracy(accuracy=calc_accuracy(embedding_centroids, outputs_test, labels_test),
                              mode='full test')
 
     def register_func(self, func: Callable, opts: dict = None):
@@ -199,7 +199,7 @@ class Monitor(object):
 
     def epoch_finished(self, model: nn.Module, outputs_full, labels_full):
         embedding_centroids = get_class_centroids(outputs_full, labels_full)
-        self.update_accuracy(accuracy=calc_accuracy_overlap(embedding_centroids, outputs_full, labels_full),
+        self.update_accuracy(accuracy=calc_accuracy(embedding_centroids, outputs_full, labels_full),
                              mode='full train')
         self.update_accuracy_test(model, embedding_centroids)
         # self.update_distribution()
