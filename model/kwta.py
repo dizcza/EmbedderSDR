@@ -45,7 +45,7 @@ class KWinnersTakeAllSoft(KWinnersTakeAll):
 
     def __init__(self, sparsity=SPARSITY, hardness=10):
         super().__init__(sparsity)
-        self.hardness = nn.Parameter(torch.full((), hardness))
+        self.hardness = hardness
 
     def forward(self, x):
         if self.training:

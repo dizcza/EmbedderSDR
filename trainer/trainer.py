@@ -67,12 +67,15 @@ class Trainer(ABC):
         self.checkpoint.step(model=self.model, loss=loss)
         return loss
 
-    def train(self, n_epoch=10, epoch_update_step=1, with_mutual_info=False, watch_parameters=False):
+    def train(self, n_epoch=10, epoch_update_step=1, with_mutual_info=False, watch_parameters=False,
+              mutual_info_layers=5):
         """
         :param n_epoch: number of training epochs
         :param epoch_update_step: epoch step to run full evaluation
         :param with_mutual_info: plot the mutual information of layer activations?
         :param watch_parameters: turn on/off excessive parameters monitoring
+        :param mutual_info_layers: when with_mutual_info flag is set, specifies the number of last layers
+                                   to be monitored for mutual information
         """
         print(self.model)
         self.monitor.log_model(self.model)
@@ -94,7 +97,7 @@ class Trainer(ABC):
 
         if with_mutual_info:
             get_outputs_eval = self.monitor.mutual_info.decorate_evaluation(get_outputs_eval)
-            self.monitor.mutual_info.prepare(eval_loader, model=self.model, monitor_layers_count=5)
+            self.monitor.mutual_info.prepare(eval_loader, model=self.model, monitor_layers_count=mutual_info_layers)
         self.monitor.set_watch_mode(watch_parameters)
 
         # do we need to transform images into pairs?
