@@ -1,16 +1,16 @@
-import time
 import os
+import time
 from collections import defaultdict
 from typing import Union, List, Iterable
 
 import numpy as np
 import visdom
 
-from monitor.batch_timer import BatchTimer
+from monitor.batch_timer import timer
 
 
 class VisdomMighty(visdom.Visdom):
-    def __init__(self, env: str, timer: BatchTimer):
+    def __init__(self, env: str = "main"):
         port = int(os.environ.get('VISDOM_PORT', 8097))
         server = os.environ.get('VISDOM_SERVER', 'http://localhost')
         super().__init__(env=env, server=server, port=port)

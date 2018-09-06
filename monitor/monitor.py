@@ -117,7 +117,7 @@ class Monitor(object):
         :param env_name: Visdom environment name
         """
         self.timer = timer
-        self.viz = VisdomMighty(env=env_name, timer=self.timer)
+        self.viz = VisdomMighty(env=env_name)
         self.test_loader = test_loader
         self.param_records = ParamsDict()
         self.mutual_info = MutualInfoKMeans(estimate_size=int(1e3), compression_range=(0.5, 0.999))

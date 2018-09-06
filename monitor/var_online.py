@@ -4,6 +4,7 @@ from torchvision import transforms, datasets
 from tqdm import tqdm
 
 from constants import DATA_DIR
+from monitor.viz import VisdomMighty
 
 
 class VarianceOnline(object):
@@ -66,19 +67,20 @@ def dataset_mean_std(dataset_cls: type):
 def visualize_mean_std(dataset_cls=datasets.MNIST):
     """
     Plots dataset mean and std, averaged across channels.
+    Run as module: 'python -m monitor.var_online'.
     :param dataset_cls: class type of torch.utils.data.Dataset
     """
-    import matplotlib.pyplot as plt
+    viz = VisdomMighty(env="main")
+    import time
+    time.sleep(1)
+    viz.close()
     mean, std = dataset_mean_std(dataset_cls=dataset_cls)
-    plt.subplot(121)
-    plt.title(f"{dataset_cls.__name__} mean")
-    plt.imshow(mean.mean(dim=0))
-    plt.axis('off')
-    plt.subplot(122)
-    plt.title(f"{dataset_cls.__name__} STD")
-    plt.imshow(std.mean(dim=0))
-    plt.axis('off')
-    plt.show()
+    viz.heatmap(mean.mean(dim=0), win=f'{dataset_cls.__name__} mean', opts=dict(
+        title=f'{dataset_cls.__name__} Mean',
+    ))
+    viz.heatmap(std.mean(dim=0), win=f'{dataset_cls.__name__} std', opts=dict(
+        title=f'{dataset_cls.__name__} STD',
+    ))
 
 
 if __name__ == '__main__':
