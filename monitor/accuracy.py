@@ -1,9 +1,12 @@
+import psutil
 import torch
 import torch.nn as nn
 import torch.utils.data
+from tqdm import tqdm
 
 
 def get_outputs(model: nn.Module, loader: torch.utils.data.DataLoader):
+    free_memory_limit = 1024 ** 3  # 1 Gb
     mode_saved = model.training
     model.train(False)
     use_cuda = torch.cuda.is_available()
@@ -12,7 +15,9 @@ def get_outputs(model: nn.Module, loader: torch.utils.data.DataLoader):
     outputs_full = []
     labels_full = []
     with torch.no_grad():
-        for inputs, labels in iter(loader):
+        for inputs, labels in tqdm(iter(loader), desc="Full forward pass", leave=False):
+            if psutil.virtual_memory().available < free_memory_limit:
+                break
             if use_cuda:
                 inputs = inputs.cuda()
             outputs = model(inputs)

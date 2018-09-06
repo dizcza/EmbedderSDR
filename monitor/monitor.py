@@ -8,7 +8,7 @@ import torch.utils.data
 from sklearn.metrics.pairwise import manhattan_distances
 
 from monitor.accuracy import calc_accuracy, get_class_centroids, get_outputs
-from monitor.batch_timer import timer, Schedule
+from monitor.batch_timer import timer, ScheduleStep
 from monitor.mutual_info import MutualInfoKMeans
 from monitor.var_online import VarianceOnline
 from monitor.viz import VisdomMighty
@@ -153,7 +153,7 @@ class Monitor(object):
             title=f'Accuracy'
         ), name=mode)
 
-    @Schedule(epoch_update=1)
+    @ScheduleStep(epoch_step=1)
     def update_accuracy_test(self, model: nn.Module, embedding_centroids: torch.FloatTensor):
         outputs_test, labels_test = get_outputs(model, loader=self.test_loader)
         self.update_accuracy(accuracy=calc_accuracy(embedding_centroids, outputs_test, labels_test),

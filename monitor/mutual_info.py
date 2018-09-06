@@ -11,7 +11,7 @@ import torch.utils.data
 from sklearn import cluster
 from sklearn.metrics import mutual_info_score
 
-from monitor.batch_timer import Schedule
+from monitor.batch_timer import ScheduleExp
 from monitor.viz import VisdomMighty
 
 LayerForward = namedtuple("LayerForward", ("layer", "forward_orig"))
@@ -54,7 +54,7 @@ class MutualInfoBin(ABC):
     def register(self, layer: nn.Module, name: str):
         self.layers[name] = LayerForward(layer, layer.forward)
 
-    @Schedule(epoch_update=0, batch_update=5)
+    @ScheduleExp()
     def force_update(self, model: nn.Module):
         if self.eval_loader is None:
             return
