@@ -64,3 +64,7 @@ class KWinnersTakeAllSoft(KWinnersTakeAll):
             return x_scaled.sigmoid()
         else:
             return _KWinnersTakeAllFunction.apply(x, self.sparsity)
+
+    def extra_repr(self):
+        old_repr = super().extra_repr()
+        return f"{old_repr}, hardness={self.hardness}"

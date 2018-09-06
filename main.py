@@ -6,12 +6,14 @@ from loss import ContrastiveLossBatch
 
 from model.dpn import DPN26
 from model.embedder import EmbedderSDR
+from model.kwta import KWinnersTakeAll, KWinnersTakeAllSoft
 
 
 def train(n_epoch=500, dataset_name="CIFAR10_56"):
     set_seed(26)
-    model = EmbedderSDR(dataset_name=dataset_name, sparsity=0.3, hardness=1)
-    # model = DPN26(sparsity=0.3, hardness=1)
+    kwta = KWinnersTakeAllSoft(sparsity=0.3, hardness=0.1)
+    model = EmbedderSDR(kwta_layer=kwta, dataset_name=dataset_name)
+    # model = DPN26(kwta_layer=kwta)
     # optimizer = torch.optim.SGD(model.parameters(), lr=1e-2, weight_decay=1e-3)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=10,

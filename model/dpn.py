@@ -6,8 +6,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from model.kwta import KWinnersTakeAllSoft
-
 
 class Bottleneck(nn.Module):
     def __init__(self, last_planes, in_planes, out_planes, dense_depth, stride, first_layer):
@@ -41,7 +39,7 @@ class Bottleneck(nn.Module):
 
 
 class DPN(nn.Module):
-    def __init__(self, cfg, sparsity, hardness):
+    def __init__(self, cfg, kwta_layer):
         super(DPN, self).__init__()
         in_planes, out_planes = cfg['in_planes'], cfg['out_planes']
         num_blocks, dense_depth = cfg['num_blocks'], cfg['dense_depth']
@@ -54,7 +52,7 @@ class DPN(nn.Module):
         self.layer3 = self._make_layer(in_planes[2], out_planes[2], num_blocks[2], dense_depth[2], stride=2)
         self.layer4 = self._make_layer(in_planes[3], out_planes[3], num_blocks[3], dense_depth[3], stride=2)
         #self.linear = nn.Linear(out_planes[3]+(num_blocks[3]+1)*dense_depth[3], 256)
-        self.kwta = KWinnersTakeAllSoft(sparsity=sparsity, hardness=hardness)
+        self.kwta = kwta_layer
 
     def _make_layer(self, in_planes, out_planes, num_blocks, dense_depth, stride):
         strides = [stride] + [1]*(num_blocks-1)
@@ -77,24 +75,24 @@ class DPN(nn.Module):
         return out
 
 
-def DPN26(sparsity=0.05, hardness=10):
+def DPN26(kwta_layer):
     cfg = {
         'in_planes': (96,192,384,768),
         'out_planes': (256,512,1024,2048),
         'num_blocks': (2,2,2,2),
         'dense_depth': (16,32,24,128)
     }
-    return DPN(cfg, sparsity=sparsity, hardness=hardness)
+    return DPN(cfg, kwta_layer=kwta_layer)
 
 
-def DPN92(sparsity=0.05, hardness=10):
+def DPN92(kwta_layer):
     cfg = {
         'in_planes': (96,192,384,768),
         'out_planes': (256,512,1024,2048),
         'num_blocks': (3,4,20,3),
         'dense_depth': (16,32,24,128)
     }
-    return DPN(cfg, sparsity=sparsity, hardness=hardness)
+    return DPN(cfg, kwta_layer=kwta_layer)
 
 
 if __name__ == '__main__':
