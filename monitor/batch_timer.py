@@ -20,6 +20,9 @@ class BatchTimer(object):
     def epoch_progress(self):
         return self.batch_id / self.batches_in_epoch
 
+    def is_epoch_finished(self):
+        return self.batch_id > 0 and self.batch_id % self.batches_in_epoch == 0
+
     def tick(self):
         self.batch_id += 1
 

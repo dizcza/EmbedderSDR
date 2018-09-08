@@ -1,8 +1,8 @@
+import os
+
 import torch
 import torch.nn as nn
 import torch.utils.data
-from tqdm import tqdm
-import os
 
 
 def get_outputs(model: nn.Module, loader: torch.utils.data.DataLoader):
@@ -17,7 +17,7 @@ def get_outputs(model: nn.Module, loader: torch.utils.data.DataLoader):
     outputs_full = []
     labels_full = []
     with torch.no_grad():
-        for inputs, labels in tqdm(iter(loader), desc="Full forward pass", leave=False):
+        for inputs, labels in iter(loader):
             if loader.batch_size * len(outputs_full) > n_samples_take:
                 break
             if use_cuda:

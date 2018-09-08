@@ -21,13 +21,16 @@ class Trainer(ABC):
 
     watch_modules = (nn.Linear, nn.Conv2d)
 
-    def __init__(self, model: nn.Module, criterion: nn.Module, dataset_name: str, patience=None):
+    def __init__(self, model: nn.Module, criterion: nn.Module, dataset_name: str, patience=None, env_suffix=''):
         self.model = model
         self.criterion = criterion
         self.dataset_name = dataset_name
         self.train_loader = get_data_loader(dataset_name, train=True)
         timer.init(batches_in_epoch=len(self.train_loader))
-        self.monitor = Monitor(test_loader=get_data_loader(self.dataset_name, train=False), env_name=self.env_name)
+        env_name = self.env_name
+        if env_suffix:
+            env_name += f" {env_suffix}"
+        self.monitor = Monitor(test_loader=get_data_loader(self.dataset_name, train=False), env_name=env_name)
         self._monitor_parameters(self.model)
         self.checkpoint = Checkpoint(model=self.model, patience=patience)
 
