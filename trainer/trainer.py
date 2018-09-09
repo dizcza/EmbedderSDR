@@ -8,13 +8,12 @@ import torch.nn as nn
 import torch.utils.data
 from tqdm import tqdm
 
-from constants import ROOT_DIR
 from loss import ContrastiveLoss, ContrastiveLossBatch
 from monitor.accuracy import get_outputs, calc_raw_accuracy
 from monitor.batch_timer import timer
 from monitor.monitor import Monitor
 from trainer.checkpoint import Checkpoint
-from utils import get_data_loader, create_pairs
+from utils import get_data_loader, create_pairs, find_named_layers
 
 
 class Trainer(ABC):
@@ -31,7 +30,8 @@ class Trainer(ABC):
         if env_suffix:
             env_name += f" {env_suffix}"
         self.monitor = Monitor(test_loader=get_data_loader(self.dataset_name, train=False), env_name=env_name)
-        self._monitor_parameters(self.model)
+        for name, layer in find_named_layers(self.model, layer_class=self.watch_modules):
+            self.monitor.register_layer(layer, prefix=name)
         self.checkpoint = Checkpoint(model=self.model, patience=patience)
 
     @property
@@ -41,17 +41,14 @@ class Trainer(ABC):
         env_name = env_name.replace('_', '-')  # visdom things
         return env_name
 
+    def monitor_functions(self):
+        pass
+
     def log_trainer(self):
         self.monitor.log(f"Criterion: {self.criterion}")
 
     def reset_checkpoint(self):
         self.checkpoint.reset(model=self.model)
-
-    def _monitor_parameters(self, layer: nn.Module, prefix=''):
-        for name, child in layer.named_children():
-            self._monitor_parameters(child, prefix=f'{prefix}.{name}')
-        if isinstance(layer, self.watch_modules):
-            self.monitor.register_layer(layer, prefix=prefix.lstrip('.'))
 
     @abstractmethod
     def train_batch(self, images, labels):
@@ -81,14 +78,13 @@ class Trainer(ABC):
                                    to be monitored for mutual information
         """
         print(self.model)
+        self.monitor_functions()
         self.monitor.log_model(self.model)
         self.log_trainer()
         use_cuda = torch.cuda.is_available()
         if use_cuda:
             self.model.cuda()
-        accuracy_message = f"Raw input centroids accuracy: {calc_raw_accuracy(self.train_loader):.3f}"
-        self.monitor.log(accuracy_message)
-        print(f"Training '{self.model.__class__.__name__}'. {accuracy_message}")
+        print(f"Training '{self.model.__class__.__name__}'")
 
         eval_loader = torch.utils.data.DataLoader(dataset=self.train_loader.dataset,
                                                   batch_size=self.train_loader.batch_size,

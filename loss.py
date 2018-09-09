@@ -70,7 +70,7 @@ class ContrastiveLossBatch(ContrastiveLoss):
                 dist = self.distance(outputs_same_label[1:], outputs_same_label[:-1], is_same=True)
                 dist_same.append(dist)
 
-            other_idx = np.arange(len(labels))[~mask_same]
+            other_idx = np.arange(len(labels))[~mask_same.cpu()]
             other_idx = np.random.choice(other_idx, size=n_same, replace=True)
             other_idx = torch.as_tensor(other_idx, device=outputs.device)
             outputs_other_label = outputs[other_idx]

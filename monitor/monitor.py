@@ -1,5 +1,6 @@
 from collections import UserDict
 from typing import Callable
+import os
 
 import numpy as np
 import torch
@@ -122,12 +123,16 @@ class Monitor(object):
         self.param_records = ParamsDict()
         self.mutual_info = MutualInfoKMeans(estimate_size=int(1e3), compression_range=(0.5, 0.999))
         self.functions = []
+        self.log_envs()
 
     def log_model(self, model: nn.Module, space='-'):
         for line in repr(model).splitlines():
             n_spaces = len(line) - len(line.lstrip())
             line = space * n_spaces + line
             self.viz.text(line, win='log', append=self.viz.win_exists('log'))
+
+    def log_envs(self):
+        self.log(f"FULL_FORWARD_PASS_SIZE: {os.environ.get('FULL_FORWARD_PASS_SIZE', '(all samples)')}")
 
     def log(self, text: str):
         self.viz.log(text)
@@ -159,8 +164,8 @@ class Monitor(object):
         self.update_accuracy(accuracy=calc_accuracy(embedding_centroids, outputs_test, labels_test),
                              mode='full test')
 
-    def register_func(self, func: Callable, opts: dict = None):
-        self.functions.append((func, opts))
+    def register_func(self, *func: Callable):
+        self.functions.extend(func)
 
     def update_distribution(self):
         for name, param_record in self.param_records.items():
@@ -202,10 +207,10 @@ class Monitor(object):
         self.update_accuracy(accuracy=calc_accuracy(embedding_centroids, outputs_full, labels_full),
                              mode='full train')
         self.update_accuracy_test(model, embedding_centroids)
-        # self.update_distribution()
+        self.update_distribution()
         self.mutual_info.plot(self.viz)
-        for func_id, (func, opts) in enumerate(self.functions):
-            self.viz.line_update(y=func(), opts=opts)
+        for monitored_function in self.functions:
+            monitored_function(self.viz)
         # statistics below require monitored parameters
         # self.param_records.plot_sign_flips(self.viz)
         # self.update_gradient_mean_std()

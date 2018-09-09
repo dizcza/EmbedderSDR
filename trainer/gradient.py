@@ -19,13 +19,20 @@ class TrainerGrad(Trainer):
         super().__init__(model, criterion, dataset_name, **kwargs)
         self.optimizer = optimizer
         self.scheduler = scheduler
-        if self.scheduler is not None:
-            self.monitor.register_func(lambda: list(group['lr'] for group in self.optimizer.param_groups), opts=dict(
+
+    def monitor_functions(self):
+        super().monitor_functions()
+
+        def learning_rate(viz):
+            viz.line_update(y=[group['lr'] for group in self.optimizer.param_groups], opts=dict(
                 xlabel='Epoch',
                 ylabel='Learning rate',
                 title='Learning rate',
                 ytype='log',
             ))
+
+        if self.scheduler is not None:
+            self.monitor.register_func(learning_rate)
 
     def log_trainer(self):
         super().log_trainer()

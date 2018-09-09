@@ -4,9 +4,9 @@ import torch.nn as nn
 import torch.utils.data
 from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
 
-from model.kwta import KWinnersTakeAllSoft, KWinnersTakeAll
+from model.kwta import KWinnersTakeAllSoft, KWinnersTakeAll, SynapticScaling
 from trainer.gradient import TrainerGrad
-from utils import find_layers
+from utils import find_layers, find_named_layers
 
 
 class KWTAScheduler:
@@ -48,7 +48,7 @@ class KWTAScheduler:
 
 
 class TrainerGradKWTA(TrainerGrad):
-    watch_modules = TrainerGrad.watch_modules + (KWinnersTakeAll,)
+    watch_modules = TrainerGrad.watch_modules + (KWinnersTakeAll, SynapticScaling)
 
     """
     If the model does not have any KWinnerTakeAll layers, it works just as TrainerGrad.
@@ -62,21 +62,50 @@ class TrainerGradKWTA(TrainerGrad):
         super().__init__(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
                          scheduler=scheduler, **kwargs)
         self.kwta_scheduler = kwta_scheduler
+
+    def monitor_functions(self):
+        super().monitor_functions()
         if self.kwta_scheduler is not None:
-            kwta_layers = tuple(find_layers(model, layer_class=KWinnersTakeAll))
-            kwta_layers_soft = tuple(find_layers(model, layer_class=KWinnersTakeAllSoft))
-            self.monitor.register_func(lambda: [layer.sparsity for layer in kwta_layers], opts=dict(
-                xlabel='Epoch',
-                ylabel='sparsity',
-                title='KWinnersTakeAll.sparsity',
-                ytype='log',
-            ))
-            self.monitor.register_func(lambda: [layer.hardness for layer in kwta_layers_soft], opts=dict(
-                xlabel='Epoch',
-                ylabel='hardness',
-                title='KWinnersTakeAllSoft.hardness',
-                ytype='log',
-            ))
+            kwta_layers = tuple(find_layers(self.model, layer_class=KWinnersTakeAll))
+            kwta_layers_soft = tuple(find_layers(self.model, layer_class=KWinnersTakeAllSoft))
+
+            def sparsity(viz):
+                viz.line_update(y=[layer.sparsity for layer in kwta_layers], opts=dict(
+                    xlabel='Epoch',
+                    ylabel='sparsity',
+                    title='KWinnersTakeAll.sparsity',
+                    ytype='log',
+                ))
+
+            def hardness(viz):
+                viz.line_update(y=[layer.hardness for layer in kwta_layers_soft], opts=dict(
+                    xlabel='Epoch',
+                    ylabel='hardness',
+                    title='KWinnersTakeAllSoft.hardness',
+                    ytype='log',
+                ))
+
+            self.monitor.register_func(sparsity, hardness)
+
+        synaptic_scale_layers = tuple(find_named_layers(self.model, SynapticScaling))
+        if len(synaptic_scale_layers) > 0:
+
+            def monitor_synaptic_scaling(viz):
+                rownames = []
+                frequency = []
+                for name, layer in synaptic_scale_layers:
+                    rownames.append(name)
+                    frequency.append(layer.frequency)
+                frequency = torch.stack(frequency, dim=0)
+                title = "Synaptic scaling plasticity"
+                viz.heatmap(frequency, win=title, opts=dict(
+                    xlabel="Embedding dimension",
+                    ylabel="Neuron fires frequency",
+                    title=title,
+                    rownames=rownames,
+                ))
+
+            self.monitor.register_func(monitor_synaptic_scaling)
 
     def log_trainer(self):
         super().log_trainer()
@@ -86,7 +115,7 @@ class TrainerGradKWTA(TrainerGrad):
     def env_name(self) -> str:
         env_name = super().env_name
         if not any(find_layers(self.model, layer_class=KWinnersTakeAll)):
-            env_name += " no-kwta"
+            env_name += " (TrainerGrad)"
         return env_name
 
     def _epoch_finished(self, epoch, outputs, labels) -> torch.Tensor:

@@ -1,7 +1,9 @@
+from typing import Union
+
 import torch.nn as nn
 
-from constants import SPARSITY, EMBEDDING_SIZE
-from model.kwta import KWinnersTakeAll
+from constants import EMBEDDING_SIZE
+from model.kwta import KWinnersTakeAll, SynapticScaling
 
 
 class EmbedderSDR(nn.Module):
@@ -18,7 +20,7 @@ class EmbedderSDR(nn.Module):
             x = self.kwta(x)
         return x
 
-    def __init__(self, kwta_layer: KWinnersTakeAll, dataset_name="MNIST", conv_channels=3):
+    def __init__(self, kwta_layer: Union[KWinnersTakeAll, SynapticScaling], dataset_name="MNIST", conv_channels=3):
         super().__init__()
         if "MNIST" in dataset_name:
             conv_in_channels = 1
