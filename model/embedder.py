@@ -13,7 +13,8 @@ class EmbedderSDR(nn.Module):
         x = self.maxpool(x)
         x = x.view(x.shape[0], -1)
         x = self.fc_emb(x)
-        x = self.kwta(x)
+        if self.kwta is not None:
+            x = self.kwta(x)
         return x
 
     def __init__(self, kwta_layer: KWinnersTakeAll, dataset_name="MNIST", conv_channels=3):
