@@ -16,6 +16,7 @@ class _KWinnersTakeAllFunction(torch.autograd.Function):
         active_indices = argsort[:, :k_active]
         mask_active = torch.ByteTensor(tensor.shape).zero_()
         mask_active[torch.arange(batch_size).unsqueeze_(dim=1), active_indices] = 1
+        mask_active[tensor == 0] = 0
         tensor[~mask_active] = 0
         tensor[mask_active] = 1
         # ctx.save_for_backward(mask_active)

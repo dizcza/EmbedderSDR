@@ -70,6 +70,7 @@ class DPN(nn.Module):
         out = self.layer4(out)
         out = F.avg_pool2d(out, 4)
         out = out.view(out.size(0), -1)
+        F.relu(out, inplace=True)
         #out = self.linear(out)
         if self.kwta is not None:
             out = self.kwta(out)

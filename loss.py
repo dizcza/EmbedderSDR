@@ -12,12 +12,8 @@ from monitor.batch_timer import timer
 
 class ContrastiveLoss(nn.Module, ABC):
 
-    def __init__(self, same_only=False, metric='cosine', eps=1e-7):
-        """
-        :param same_only: use same-only or include same-other classes loss?
-        """
+    def __init__(self, metric='cosine', eps=1e-7):
         super().__init__()
-        self.same_only = same_only
         self.metric = metric
         self.eps = eps
         if self.metric == 'cosine':
@@ -26,7 +22,7 @@ class ContrastiveLoss(nn.Module, ABC):
             self.margin = 0.7 * MAX_L0_DIST
 
     def extra_repr(self):
-        return f'same_only={self.same_only}, metric={self.metric}, margin={self.margin}'
+        return f'metric={self.metric}, margin={self.margin}'
 
     def distance(self, input1, input2, is_same: bool):
         if self.metric == 'cosine':
@@ -52,25 +48,6 @@ class ContrastiveLoss(nn.Module, ABC):
             return dist
 
 
-class ContrastiveLossAnchor(ContrastiveLoss):
-
-    def forward(self, outputs, labels):
-        loss = 0
-        labels_unique = sorted(labels.unique())
-        for label_unique in labels_unique:
-            outputs_same_label = outputs[labels == label_unique]
-            anchor = outputs_same_label[0].unsqueeze(dim=0)
-            if len(outputs_same_label) > 1:
-                loss += self.distance(outputs_same_label[1:], anchor, is_same=True).mean()
-
-            if not self.same_only:
-                outputs_other_label = outputs[labels != label_unique]
-                dist = self.distance(outputs_other_label, anchor, is_same=False)
-                loss += dist.mean()
-
-        return loss
-
-
 class ContrastiveLossBatch(ContrastiveLoss):
 
     @staticmethod
@@ -89,7 +66,7 @@ class ContrastiveLossBatch(ContrastiveLoss):
             mask_same = labels == label_same
             outputs_same_label = outputs[mask_same]
             n_same = len(outputs_same_label)
-            if n_same > 0:
+            if n_same > 1:
                 dist = self.distance(outputs_same_label[1:], outputs_same_label[:-1], is_same=True)
                 dist_same.append(dist)
 
@@ -111,10 +88,11 @@ class ContrastiveLossBatch(ContrastiveLoss):
         for label_id, label_same in enumerate(labels_unique):
             outputs_same_label = outputs_sorted[label_same.item()]
             n_same = len(outputs_same_label)
-            upper_triangle_idx = np.triu_indices(n=n_same, k=1)
-            upper_triangle_idx = torch.as_tensor(upper_triangle_idx, device=outputs_same_label.device)
-            same_left, same_right = outputs_same_label[upper_triangle_idx]
-            dist_same.append(self.distance(same_left, same_right, is_same=True))
+            if n_same > 1:
+                upper_triangle_idx = np.triu_indices(n=n_same, k=1)
+                upper_triangle_idx = torch.as_tensor(upper_triangle_idx, device=outputs_same_label.device)
+                same_left, same_right = outputs_same_label[upper_triangle_idx]
+                dist_same.append(self.distance(same_left, same_right, is_same=True))
 
             for label_other in labels_unique[label_id + 1:]:
                 outputs_other_label = outputs_sorted[label_other.item()]
@@ -127,6 +105,9 @@ class ContrastiveLossBatch(ContrastiveLoss):
         return dist_same, dist_other
 
     def forward(self, outputs, labels):
+        nonzero = (outputs != 0).any(dim=1)
+        outputs = outputs[nonzero]
+        labels = labels[nonzero]
         if timer.is_epoch_finished():
             dist_same, dist_other = self.forward_random(outputs, labels)
         else:
@@ -135,7 +116,10 @@ class ContrastiveLossBatch(ContrastiveLoss):
         loss_same = torch.cat(dist_same).mean()
         dist_other = torch.cat(dist_other)
         dist_other = dist_other[dist_other > self.eps]
-        loss_other = dist_other.mean()
+        if len(dist_other) > 0:
+            loss_other = dist_other.mean()
+        else:
+            loss_other = 0
         loss = loss_same + loss_other
 
         return loss

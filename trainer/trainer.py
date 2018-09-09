@@ -64,7 +64,7 @@ class Trainer(ABC):
         if isinstance(self.criterion, ContrastiveLoss):
             criterion = self.criterion
         else:
-            criterion = ContrastiveLossBatch(same_only=False)
+            criterion = ContrastiveLossBatch()
         loss = criterion(outputs, labels).item()
         self.monitor.update_loss(loss, mode='full train')
         self.checkpoint.step(model=self.model, loss=loss)
