@@ -207,7 +207,7 @@ class Monitor(object):
         self.update_accuracy(accuracy=calc_accuracy(embedding_centroids, outputs_full, labels_full),
                              mode='full train')
         self.update_accuracy_test(model, embedding_centroids)
-        self.update_distribution()
+        # self.update_distribution()
         self.mutual_info.plot(self.viz)
         for monitored_function in self.functions:
             monitored_function(self.viz)
