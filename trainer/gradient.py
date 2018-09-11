@@ -49,15 +49,6 @@ class TrainerGrad(Trainer):
         self.optimizer.step(closure=None)
         return outputs, loss
 
-    def train_batch_pairs(self, pairs_left, pairs_right, targets):
-        self.optimizer.zero_grad()
-        outputs_left = self.model(pairs_left)
-        outputs_right = self.model(pairs_right)
-        loss = self.criterion(outputs_left, outputs_right, targets)
-        loss.backward()
-        self.optimizer.step(closure=None)
-        return outputs_left, outputs_right, loss
-
     def _epoch_finished(self, epoch, outputs, labels) -> torch.Tensor:
         loss = super()._epoch_finished(epoch, outputs, labels)
         if isinstance(self.scheduler, ReduceLROnPlateau):

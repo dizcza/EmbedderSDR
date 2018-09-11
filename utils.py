@@ -1,9 +1,8 @@
 import math
-import random
 import time
 from functools import lru_cache, wraps
 from pathlib import Path
-from typing import Tuple, Iterable
+from typing import Tuple
 
 import torch
 import torch.nn as nn
@@ -102,31 +101,6 @@ class NormalizeFromDataset(transforms.Normalize):
         mean, std = dataset_mean_std(dataset_cls=dataset_cls)
         std += 1e-6
         super().__init__(mean=mean, std=std)
-
-
-def create_pairs(images, labels):
-    labels_unique = labels.unique()
-    n_classes = len(labels_unique)
-    pairs_left, pairs_right, targets = [], [], []
-    images_sorted = list(images[labels == label] for label in labels_unique)
-    for label_id in range(len(labels_unique)):
-        images_positive = images_sorted[label_id]
-
-        pairs_left.extend(images_positive[:-1])
-        pairs_right.extend(images_positive[1:])
-        targets.extend(torch.ones(len(images_positive)-1))
-
-        pairs_left.extend(images_positive)
-        for trial in range(len(images_positive)):
-            increment = random.randrange(1, n_classes)
-            image_negative = random.choice(images_sorted[(label_id + increment) % n_classes])
-            pairs_right.append(image_negative)
-        targets.extend(torch.ones(len(images_positive)) * -1)
-
-    pairs_left = torch.stack(pairs_left, dim=0)
-    pairs_right = torch.stack(pairs_right, dim=0)
-    targets = torch.stack(targets)
-    return pairs_left, pairs_right, targets
 
 
 class DataSubset(torch.utils.data.TensorDataset):

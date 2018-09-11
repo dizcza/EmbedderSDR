@@ -8,12 +8,11 @@ import torch.nn as nn
 import torch.utils.data
 from tqdm import tqdm
 
-from loss import ContrastiveLoss, ContrastiveLossBatch
-from monitor.accuracy import get_outputs, calc_raw_accuracy
+from monitor.accuracy import get_outputs
 from monitor.batch_timer import timer
 from monitor.monitor import Monitor
 from trainer.checkpoint import Checkpoint
-from utils import get_data_loader, create_pairs, find_named_layers
+from utils import get_data_loader, find_named_layers
 
 
 class Trainer(ABC):
@@ -54,15 +53,8 @@ class Trainer(ABC):
     def train_batch(self, images, labels):
         raise NotImplementedError()
 
-    def train_batch_pairs(self, pairs_left, pairs_right, targets):
-        raise NotImplementedError()
-
     def _epoch_finished(self, epoch, outputs, labels) -> torch.Tensor:
-        if isinstance(self.criterion, ContrastiveLoss):
-            criterion = self.criterion
-        else:
-            criterion = ContrastiveLossBatch()
-        loss = criterion(outputs, labels).item()
+        loss = self.criterion(outputs, labels).item()
         self.monitor.update_loss(loss, mode='full train')
         self.checkpoint.step(model=self.model, loss=loss)
         return loss
@@ -98,9 +90,6 @@ class Trainer(ABC):
             self.monitor.mutual_info.prepare(eval_loader, model=self.model, monitor_layers_count=mutual_info_layers)
         self.monitor.set_watch_mode(watch_parameters)
 
-        # do we need to transform images into pairs?
-        as_pairs = not isinstance(self.criterion, ContrastiveLoss)
-
         for epoch in range(n_epoch):
             labels, outputs, loss = None, None, None
             for images, labels in tqdm(self.train_loader,
@@ -110,11 +99,7 @@ class Trainer(ABC):
                     images = images.cuda()
                     labels = labels.cuda()
 
-                if as_pairs:
-                    pairs_left, pairs_right, targets = create_pairs(images, labels)
-                    outputs_left, outputs_right, loss = self.train_batch_pairs(pairs_left, pairs_right, targets)
-                else:
-                    outputs, loss = self.train_batch(images, labels)
+                outputs, loss = self.train_batch(images, labels)
                 for name, param in self.model.named_parameters():
                     if torch.isnan(param).any():
                         warnings.warn(f"NaN parameters in '{name}'")
