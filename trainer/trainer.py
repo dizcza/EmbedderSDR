@@ -12,6 +12,7 @@ from monitor.accuracy import get_outputs
 from monitor.batch_timer import timer
 from monitor.monitor import Monitor
 from trainer.checkpoint import Checkpoint
+from loss import ContrastiveLoss
 from utils import get_data_loader, find_named_layers
 
 
@@ -28,7 +29,9 @@ class Trainer(ABC):
         env_name = self.env_name
         if env_suffix:
             env_name += f" {env_suffix}"
-        self.monitor = Monitor(test_loader=get_data_loader(self.dataset_name, train=False), env_name=env_name)
+        self.monitor = Monitor(test_loader=get_data_loader(self.dataset_name, train=False),
+                               use_argmax=not isinstance(self.criterion, ContrastiveLoss),
+                               env_name=env_name)
         for name, layer in find_named_layers(self.model, layer_class=self.watch_modules):
             self.monitor.register_layer(layer, prefix=name)
         self.checkpoint = Checkpoint(model=self.model, patience=patience)
@@ -53,7 +56,7 @@ class Trainer(ABC):
     def train_batch(self, images, labels):
         raise NotImplementedError()
 
-    def _epoch_finished(self, epoch, outputs, labels) -> torch.Tensor:
+    def _epoch_finished(self, epoch, outputs, labels):
         loss = self.criterion(outputs, labels).item()
         self.monitor.update_loss(loss, mode='full train')
         self.checkpoint.step(model=self.model, loss=loss)

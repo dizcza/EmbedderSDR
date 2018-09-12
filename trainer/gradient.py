@@ -49,7 +49,7 @@ class TrainerGrad(Trainer):
         self.optimizer.step(closure=None)
         return outputs, loss
 
-    def _epoch_finished(self, epoch, outputs, labels) -> torch.Tensor:
+    def _epoch_finished(self, epoch, outputs, labels):
         loss = super()._epoch_finished(epoch, outputs, labels)
         if isinstance(self.scheduler, ReduceLROnPlateau):
             self.scheduler.step(metrics=loss, epoch=epoch)

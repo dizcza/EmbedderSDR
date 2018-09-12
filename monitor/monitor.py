@@ -8,8 +8,8 @@ import torch.nn as nn
 import torch.utils.data
 from sklearn.metrics.pairwise import manhattan_distances
 
-from monitor.accuracy import calc_accuracy, get_class_centroids, get_outputs
-from monitor.batch_timer import timer, ScheduleStep
+from monitor.accuracy import calc_accuracy, get_class_centroids, get_outputs, argmax_accuracy
+from monitor.batch_timer import timer
 from monitor.mutual_info import MutualInfoKMeans
 from monitor.var_online import VarianceOnline
 from monitor.viz import VisdomMighty
@@ -112,18 +112,21 @@ class Monitor(object):
 
     n_classes_format_ytickstep_1 = 10
 
-    def __init__(self, test_loader: torch.utils.data.DataLoader, env_name="main"):
+    def __init__(self, test_loader: torch.utils.data.DataLoader, use_argmax=False, env_name="main"):
         """
         :param test_loader: dataloader to test model performance at each epoch_finished() call
+        :param use_argmax: use argmax or centroid embeddings accuracy?
         :param env_name: Visdom environment name
         """
         self.timer = timer
         self.viz = VisdomMighty(env=env_name)
         self.test_loader = test_loader
+        self.use_argmax = use_argmax
         self.param_records = ParamsDict()
         self.mutual_info = MutualInfoKMeans(estimate_size=int(1e3), compression_range=(0.5, 0.999))
         self.functions = []
         self.log_envs()
+        self.log_self()
 
     def log_model(self, model: nn.Module, space='-'):
         for line in repr(model).splitlines():
@@ -133,6 +136,9 @@ class Monitor(object):
 
     def log_envs(self):
         self.log(f"FULL_FORWARD_PASS_SIZE: {os.environ.get('FULL_FORWARD_PASS_SIZE', '(all samples)')}")
+
+    def log_self(self):
+        self.log(f"{self.__class__.__name__}(use_argmax={self.use_argmax})")
 
     def log(self, text: str):
         self.viz.log(text)
@@ -157,12 +163,6 @@ class Monitor(object):
             ylabel='Accuracy',
             title=f'Accuracy'
         ), name=mode)
-
-    @ScheduleStep(epoch_step=1)
-    def update_accuracy_test(self, model: nn.Module, embedding_centroids: torch.FloatTensor):
-        outputs_test, labels_test = get_outputs(model, loader=self.test_loader)
-        self.update_accuracy(accuracy=calc_accuracy(embedding_centroids, outputs_test, labels_test),
-                             mode='full test')
 
     def register_func(self, *func: Callable):
         self.functions.extend(func)
@@ -202,11 +202,22 @@ class Monitor(object):
                 ytype='log',
             ))
 
+    def update_accuracy_train_test(self, model: nn.Module, outputs_train, labels_train):
+        outputs_test, labels_test = get_outputs(model, loader=self.test_loader)
+        if self.use_argmax:
+            labels_predicted = outputs_train.argmax(dim=1)
+            accuracy = (labels_train == labels_predicted).type(torch.FloatTensor).mean()
+            self.update_accuracy(accuracy=accuracy, mode='full train')
+            self.update_accuracy(accuracy=argmax_accuracy(outputs_test, labels_test), mode='full test')
+        else:
+            embedding_centroids = get_class_centroids(outputs_train, labels_train)
+            self.update_accuracy(accuracy=calc_accuracy(embedding_centroids, outputs_train, labels_train),
+                                 mode='full train')
+            self.update_accuracy(accuracy=calc_accuracy(embedding_centroids, outputs_test, labels_test),
+                                 mode='full test')
+
     def epoch_finished(self, model: nn.Module, outputs_full, labels_full):
-        embedding_centroids = get_class_centroids(outputs_full, labels_full)
-        self.update_accuracy(accuracy=calc_accuracy(embedding_centroids, outputs_full, labels_full),
-                             mode='full train')
-        self.update_accuracy_test(model, embedding_centroids)
+        self.update_accuracy_train_test(model, outputs_train=outputs_full, labels_train=labels_full)
         # self.update_distribution()
         self.mutual_info.plot(self.viz)
         for monitored_function in self.functions:

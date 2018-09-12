@@ -5,10 +5,23 @@ import torch.nn as nn
 import torch.utils.data
 
 
-def get_outputs(model: nn.Module, loader: torch.utils.data.DataLoader):
-    n_samples_take = int(os.environ.get("FULL_FORWARD_PASS_SIZE", -1))
+def how_many_samples_take(loader: torch.utils.data.DataLoader):
+    """
+    :param loader: train or test loader
+    :return: number of samples to draw from
+    """
+    n_samples_take = -1
+    is_train = getattr(loader.dataset, 'train', False)
+    if is_train:
+        # test dataset requires all samples
+        n_samples_take = int(os.environ.get("FULL_FORWARD_PASS_SIZE", -1))
     if n_samples_take == -1:
         n_samples_take = float('inf')
+    return n_samples_take
+
+
+def get_outputs(model: nn.Module, loader: torch.utils.data.DataLoader):
+    n_samples_take = how_many_samples_take(loader)
     mode_saved = model.training
     model.train(False)
     use_cuda = torch.cuda.is_available()
@@ -67,3 +80,9 @@ def calc_raw_accuracy(loader: torch.utils.data.DataLoader) -> float:
     accuracy_input = calc_accuracy(centroids=input_centroids, vectors_test=inputs_full,
                                    labels_test=labels_full)
     return accuracy_input
+
+
+def argmax_accuracy(outputs, labels) -> float:
+    labels_predicted = outputs.argmax(dim=1)
+    accuracy = (labels == labels_predicted).type(torch.FloatTensor).mean()
+    return accuracy.item()

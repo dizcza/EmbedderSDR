@@ -118,7 +118,7 @@ class TrainerGradKWTA(TrainerGrad):
             env_name += " (TrainerGrad)"
         return env_name
 
-    def _epoch_finished(self, epoch, outputs, labels) -> torch.Tensor:
+    def _epoch_finished(self, epoch, outputs, labels):
         loss = super()._epoch_finished(epoch, outputs, labels)
         if self.kwta_scheduler is not None:
             self.kwta_scheduler.step(epoch=epoch)
