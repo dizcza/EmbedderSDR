@@ -1,4 +1,3 @@
-import math
 from abc import ABC
 
 import numpy as np
@@ -13,6 +12,10 @@ from monitor.batch_timer import timer
 class ContrastiveLoss(nn.Module, ABC):
 
     def __init__(self, metric='cosine', eps=1e-7):
+        """
+        :param metric: cosine, l2 or l1 metric to measure the distance between embeddings
+        :param eps: threshold to skip negligible same-other loss
+        """
         super().__init__()
         self.metric = metric
         self.eps = eps
@@ -50,13 +53,18 @@ class ContrastiveLoss(nn.Module, ABC):
 
 class ContrastiveLossBatch(ContrastiveLoss):
 
-    @staticmethod
-    def half_majority_mean(distances: torch.FloatTensor):
-        if len(distances) == 0:
-            return 0
-        distances, argsort_ignored = distances.sort(descending=True)
-        n_take = math.ceil(len(distances) / 2.)
-        return distances[: n_take].mean()
+    def __init__(self, metric='cosine', eps=1e-7, random_pairs=False):
+        """
+        :param metric: cosine, l2 or l1 metric to measure the distance between embeddings
+        :param eps: threshold to skip negligible same-other loss
+        :param random_pairs: select random pairs or use all pairwise combinations
+        """
+        super().__init__(metric=metric, eps=eps)
+        self.random_pairs = random_pairs
+
+    def extra_repr(self):
+        old_repr = super().extra_repr()
+        return f'{old_repr}, random_pairs={self.random_pairs}'
 
     def forward_random(self, outputs, labels):
         dist_same = []
@@ -108,7 +116,8 @@ class ContrastiveLossBatch(ContrastiveLoss):
         nonzero = (outputs != 0).any(dim=1)
         outputs = outputs[nonzero]
         labels = labels[nonzero]
-        if timer.is_epoch_finished():
+        if self.random_pairs or timer.is_epoch_finished():
+            # if an epoch is finished, use random pairs no matter what the mode is
             dist_same, dist_other = self.forward_random(outputs, labels)
         else:
             dist_same, dist_other = self.forward_pairwise(outputs, labels)
