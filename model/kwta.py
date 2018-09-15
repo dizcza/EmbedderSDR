@@ -6,27 +6,21 @@ import torch.nn as nn
 from constants import SPARSITY
 
 
+def get_kwta_threshold(tensor: torch.FloatTensor, k_active):
+    x_sorted, argsort = tensor.sort(dim=1, descending=True)
+    threshold = x_sorted[:, [k_active-1, k_active]].mean(dim=1)
+    return threshold
+
+
 class _KWinnersTakeAllFunction(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, tensor, sparsity: float, positive_only: bool):
+    def forward(ctx, tensor, sparsity: float):
         batch_size, embedding_size = tensor.shape
-        _, argsort = tensor.sort(dim=1, descending=True)
         k_active = math.ceil(sparsity * embedding_size)
-        active_indices = argsort[:, :k_active]
-        mask_active = torch.ByteTensor(tensor.shape).zero_()
-        range_idx = torch.arange(batch_size)
-
-        mask_active[range_idx.unsqueeze(dim=1), active_indices] = 1
-        if positive_only:
-            mask_active[tensor <= 0] = 0
-            # make sure at least one bit is on
-            mask_active[range_idx, argsort[:, 0]] = 1
-
-        tensor[~mask_active] = 0
-        tensor[mask_active] = 1
-        # ctx.save_for_backward(mask_active)
-        return tensor
+        threshold = get_kwta_threshold(tensor, k_active=k_active)
+        mask_active = tensor > threshold
+        return mask_active.type(torch.FloatTensor)
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -55,7 +49,7 @@ class KWinnersTakeAll(nn.Module):
     def forward(self, x):
         if self.with_relu:
             x = self.relu(x)
-        x = _KWinnersTakeAllFunction.apply(x, self.sparsity, self.with_relu)
+        x = _KWinnersTakeAllFunction.apply(x, self.sparsity)
         return x
 
     def extra_repr(self):
@@ -79,22 +73,12 @@ class KWinnersTakeAllSoft(KWinnersTakeAll):
             x = self.relu(x)
         if self.training:
             batch_size, embedding_size = x.shape
-            _, argsort = x.sort(dim=1, descending=True)
             k_active = math.ceil(self.sparsity * embedding_size)
-            kth_element_idx = argsort[:, k_active]
-            if self.with_relu:
-                last_positive = (x > 0).sum(dim=1) - 1
-                last_positive.clamp_(min=0)
-                kth_element_idx = torch.min(kth_element_idx, last_positive)
-            kth_element_idx_next = (kth_element_idx + 1).clamp_(max=embedding_size-1)
-            range_idx = torch.arange(batch_size)
-            kth_element = x[range_idx, kth_element_idx]
-            kth_next = x[range_idx, kth_element_idx_next]
-            threshold = (kth_element + kth_next).unsqueeze_(dim=1) / 2
+            threshold = get_kwta_threshold(x, k_active=k_active)
             x_scaled = self.hardness * (x - threshold)
             return x_scaled.sigmoid()
         else:
-            return _KWinnersTakeAllFunction.apply(x, self.sparsity, self.with_relu)
+            return _KWinnersTakeAllFunction.apply(x, self.sparsity)
 
     def extra_repr(self):
         old_repr = super().extra_repr()
