@@ -63,7 +63,7 @@ def calc_accuracy(centroids: torch.FloatTensor, vectors_test: torch.FloatTensor,
     """
     distances = (vectors_test.unsqueeze(dim=1) - centroids).abs_().sum(dim=-1)
     labels_predicted = distances.argmin(dim=1)
-    accuracy = (labels_test == labels_predicted).type(torch.FloatTensor).mean()
+    accuracy = (labels_test == labels_predicted).type(torch.float32).mean()
     return accuracy.item()
 
 
@@ -84,5 +84,5 @@ def calc_raw_accuracy(loader: torch.utils.data.DataLoader) -> float:
 
 def argmax_accuracy(outputs, labels) -> float:
     labels_predicted = outputs.argmax(dim=1)
-    accuracy = (labels == labels_predicted).type(torch.FloatTensor).mean()
+    accuracy = (labels == labels_predicted).type(torch.float32).mean()
     return accuracy.item()

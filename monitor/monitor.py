@@ -206,7 +206,7 @@ class Monitor(object):
         outputs_test, labels_test = get_outputs(model, loader=self.test_loader)
         if self.use_argmax:
             labels_predicted = outputs_train.argmax(dim=1)
-            accuracy = (labels_train == labels_predicted).type(torch.FloatTensor).mean()
+            accuracy = (labels_train == labels_predicted).type(torch.float32).mean()
             self.update_accuracy(accuracy=accuracy, mode='full train')
             self.update_accuracy(accuracy=argmax_accuracy(outputs_test, labels_test), mode='full test')
         else:
