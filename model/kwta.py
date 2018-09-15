@@ -29,48 +29,34 @@ class _KWinnersTakeAllFunction(torch.autograd.Function):
 
 class KWinnersTakeAll(nn.Module):
 
-    def __init__(self, sparsity=SPARSITY, with_relu=False):
+    def __init__(self, sparsity=SPARSITY):
         """
         :param sparsity: how many bits leave active
-        :param with_relu: rely on positive only part of the signal?
         """
         super().__init__()
         assert 0. <= sparsity <= 1., "Sparsity should lie in (0, 1) interval"
         self.sparsity = sparsity
-        if with_relu:
-            self.relu = nn.ReLU(inplace=True)
-        else:
-            self.relu = None
-
-    @property
-    def with_relu(self):
-        return self.relu is not None
 
     def forward(self, x):
-        if self.with_relu:
-            x = self.relu(x)
         x = _KWinnersTakeAllFunction.apply(x, self.sparsity)
         return x
 
     def extra_repr(self):
-        return f'sparsity={self.sparsity}, with_relu={self.with_relu}'
+        return f'sparsity={self.sparsity}'
 
 
 class KWinnersTakeAllSoft(KWinnersTakeAll):
 
-    def __init__(self, sparsity=SPARSITY, with_relu=False, hardness=10):
+    def __init__(self, sparsity=SPARSITY, hardness=10):
         """
         :param sparsity: how many bits leave active
-        :param with_relu: rely on positive only part of the signal?
         :param hardness: exponent power in sigmoid function;
                          the larger the hardness, the closer sigmoid to the true kwta distribution.
         """
-        super().__init__(sparsity, with_relu=with_relu)
+        super().__init__(sparsity)
         self.hardness = hardness
 
     def forward(self, x):
-        if self.with_relu:
-            x = self.relu(x)
         if self.training:
             batch_size, embedding_size = x.shape
             k_active = math.ceil(self.sparsity * embedding_size)
