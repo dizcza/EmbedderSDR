@@ -9,6 +9,7 @@ from constants import SPARSITY
 def get_kwta_threshold(tensor: torch.FloatTensor, k_active):
     x_sorted, argsort = tensor.sort(dim=1, descending=True)
     threshold = x_sorted[:, [k_active-1, k_active]].mean(dim=1)
+    threshold.unsqueeze_(dim=1)
     return threshold
 
 
@@ -20,7 +21,7 @@ class _KWinnersTakeAllFunction(torch.autograd.Function):
         k_active = math.ceil(sparsity * embedding_size)
         threshold = get_kwta_threshold(tensor, k_active=k_active)
         mask_active = tensor > threshold
-        return mask_active.type(torch.FloatTensor)
+        return mask_active.type(torch.float32)
 
     @staticmethod
     def backward(ctx, grad_output):
