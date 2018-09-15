@@ -1,9 +1,6 @@
-from typing import Union
-
 import torch.nn as nn
 
 from constants import EMBEDDING_SIZE
-from model.kwta import KWinnersTakeAll, SynapticScaling
 
 
 class EmbedderSDR(nn.Module):
@@ -15,11 +12,11 @@ class EmbedderSDR(nn.Module):
         x = self.maxpool(x)
         x = x.view(x.shape[0], -1)
         x = self.fc_emb(x)
-        if self.kwta is not None:
-            x = self.kwta(x)
+        if self.last_layer is not None:
+            x = self.last_layer(x)
         return x
 
-    def __init__(self, kwta_layer: Union[KWinnersTakeAll, SynapticScaling], dataset_name="MNIST", conv_channels=3):
+    def __init__(self, last_layer=None, dataset_name="MNIST", conv_channels=3):
         super().__init__()
         if "MNIST" in dataset_name:
             conv_in_channels = 1
@@ -34,4 +31,4 @@ class EmbedderSDR(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3)
         self.fc_emb = nn.Linear(in_features=linear_in_features, out_features=EMBEDDING_SIZE, bias=False)
-        self.kwta = kwta_layer
+        self.last_layer = last_layer
