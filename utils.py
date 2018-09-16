@@ -14,6 +14,13 @@ from constants import DATA_DIR, MODELS_DIR, BATCH_SIZE
 from monitor.var_online import dataset_mean_std
 
 
+DATASET_IMAGE_SIZE = {
+    "MNIST": 28,
+    "FashionMNIST": 28,
+    "CIFAR10": 32,
+}
+
+
 @lru_cache(maxsize=32, typed=False)
 def factors_root(number: int):
     """
@@ -66,7 +73,12 @@ def get_data_loader(dataset: str, train=True, batch_size=BATCH_SIZE) -> torch.ut
             dataset_class = datasets.CIFAR10
         else:
             raise NotImplementedError()
-        transform = transforms.Compose([transforms.ToTensor(), NormalizeFromDataset(dataset_cls=dataset_class)])
+        transform = []
+        if train:
+            transform.append(transforms.RandomCrop(size=DATASET_IMAGE_SIZE[dataset], padding=4))
+            transform.append(transforms.RandomHorizontalFlip())
+        transform.extend([transforms.ToTensor(), NormalizeFromDataset(dataset_cls=dataset_class)])
+        transform = transforms.Compose(transform)
         dataset = dataset_class(DATA_DIR, train=train, download=True, transform=transform)
     loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
     return loader
