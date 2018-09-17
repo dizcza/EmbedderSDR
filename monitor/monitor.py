@@ -1,6 +1,7 @@
+import os
+import subprocess
 from collections import UserDict
 from typing import Callable
-import os
 
 import numpy as np
 import torch
@@ -125,20 +126,22 @@ class Monitor(object):
         self.param_records = ParamsDict()
         self.mutual_info = MutualInfoKMeans(estimate_size=int(1e3), compression_range=(0.5, 0.999))
         self.functions = []
-        self.log_envs()
         self.log_self()
 
     def log_model(self, model: nn.Module, space='-'):
+        lines = []
         for line in repr(model).splitlines():
             n_spaces = len(line) - len(line.lstrip())
             line = space * n_spaces + line
-            self.viz.text(line, win='log', append=self.viz.win_exists('log'))
-
-    def log_envs(self):
-        self.log(f"FULL_FORWARD_PASS_SIZE: {os.environ.get('FULL_FORWARD_PASS_SIZE', '(all samples)')}")
+            lines.append(line)
+        lines = '<br>'.join(lines)
+        self.log(lines)
 
     def log_self(self):
         self.log(f"{self.__class__.__name__}(use_argmax={self.use_argmax})")
+        self.log(f"FULL_FORWARD_PASS_SIZE: {os.environ.get('FULL_FORWARD_PASS_SIZE', '(all samples)')}")
+        commit = subprocess.run(['git', 'rev-parse', 'HEAD'], stdout=subprocess.PIPE, universal_newlines=True)
+        self.log(f"Git commit: {commit.stdout}")
 
     def log(self, text: str):
         self.viz.log(text)
@@ -227,6 +230,7 @@ class Monitor(object):
         # self.update_gradient_mean_std()
         self.update_initial_difference()
         self.update_grad_norm()
+        self.update_sparsity(outputs_full)
         self.activations_heatmap(outputs_full, labels_full)
         # self.update_heatmap_history(model, by_dim=False)
 
@@ -234,6 +238,14 @@ class Monitor(object):
         self.mutual_info.register(layer, name=prefix)
         for name, param in layer.named_parameters(prefix=prefix):
             self.param_records[name] = ParamRecord(param)
+
+    def update_sparsity(self, outputs):
+        sparsity = outputs.norm(p=1, dim=1).mean() / outputs.shape[1]
+        self.viz.line_update(y=sparsity, opts=dict(
+            xlabel='Epoch',
+            ylabel='L1 norm / size',
+            title='Last layer sparsity',
+        ))
 
     def update_initial_difference(self):
         legend = []
