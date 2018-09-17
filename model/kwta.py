@@ -25,7 +25,7 @@ class _KWinnersTakeAllFunction(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, grad_output):
-        return grad_output, None, None
+        return grad_output, None
 
 
 class KWinnersTakeAll(nn.Module):
