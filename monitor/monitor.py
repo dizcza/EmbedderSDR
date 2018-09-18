@@ -10,7 +10,7 @@ import torch.utils.data
 from sklearn.metrics.pairwise import manhattan_distances
 
 from monitor.accuracy import calc_accuracy, get_class_centroids, get_outputs, argmax_accuracy
-from monitor.batch_timer import timer
+from monitor.batch_timer import timer, ScheduleStep
 from monitor.mutual_info import MutualInfoKMeans
 from monitor.var_online import VarianceOnline
 from monitor.viz import VisdomMighty
@@ -341,7 +341,7 @@ class Monitor(object):
         class_centroids = torch.stack(class_centroids, dim=0)
         std_centroids = torch.stack(std_centroids, dim=0)
         opts = dict(
-            title=win,
+            title=f"{win}. Epoch {self.timer.epoch}",
             xlabel='Embedding dimension',
             ylabel='Label',
             rownames=label_names,
@@ -349,6 +349,7 @@ class Monitor(object):
         if class_centroids.shape[0] <= self.n_classes_format_ytickstep_1:
             opts.update(ytickstep=1)
         self.viz.heatmap(class_centroids, win=win, opts=opts)
+        self.save_heatmap(class_centroids, win=win, opts=opts)
         normalizer = class_centroids.norm(p=1, dim=1).mean()
         outer_distance = compute_manhattan_dist(class_centroids) / normalizer
         std = std_centroids.norm(p=1, dim=1).mean() / normalizer
@@ -358,3 +359,7 @@ class Monitor(object):
             legend=['inter-distance', 'intra-STD'],
             title='How much do patterns differ in L1 measure?',
         ))
+
+    @ScheduleStep(epoch_step=10)
+    def save_heatmap(self, heatmap, win, opts):
+        self.viz.heatmap(heatmap, win=f"{win}. Epoch {self.timer.epoch}", opts=opts)
