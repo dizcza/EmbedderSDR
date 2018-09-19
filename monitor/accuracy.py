@@ -53,36 +53,23 @@ def get_class_centroids(vectors: torch.FloatTensor, labels) -> torch.FloatTensor
     return centroids
 
 
-def calc_accuracy(centroids: torch.FloatTensor, vectors_test: torch.FloatTensor, labels_test) -> float:
-    """
-    Calculates accuracy based on L1-measure distances between centroids of each class and vectors_test
-    :param centroids: matrix of (n_classes, embedding_dim) shape
-    :param vectors_test: matrix of (n_samples, embedding_dim) shape
-    :param labels_test: true labels, n_samples
-    :return: accuracy
-    """
-    distances = (vectors_test.unsqueeze(dim=1) - centroids).abs_().sum(dim=-1)
-    labels_predicted = distances.argmin(dim=1)
-    accuracy = (labels_test == labels_predicted).type(torch.float32).mean()
+def calc_accuracy(labels_true, labels_predicted) -> float:
+    accuracy = (labels_true == labels_predicted).type(torch.float32).mean()
     return accuracy.item()
 
 
-def calc_raw_accuracy(loader: torch.utils.data.DataLoader) -> float:
-    inputs_full = []
-    labels_full = []
-    for inputs, labels in iter(loader):
-        inputs_full.append(inputs)
-        labels_full.append(labels)
-    inputs_full = torch.cat(inputs_full, dim=0)
-    labels_full = torch.cat(labels_full, dim=0)
-    inputs_full = inputs_full.view(inputs_full.shape[0], -1)
-    input_centroids = get_class_centroids(inputs_full, labels_full)
-    accuracy_input = calc_accuracy(centroids=input_centroids, vectors_test=inputs_full,
-                                   labels_test=labels_full)
-    return accuracy_input
+def predict_centroid_labels(centroids: torch.FloatTensor, vectors_test: torch.FloatTensor):
+    """
+    Predicts the label based on L1 shortest distance to each of centroids.
+    :param centroids: matrix of (n_classes, embedding_dim) shape
+    :param vectors_test: matrix of (n_samples, embedding_dim) shape
+    :return: predicted labels
+    """
+    distances = (vectors_test.unsqueeze(dim=1) - centroids).abs_().sum(dim=-1)
+    labels_predicted = distances.argmin(dim=1)
+    return labels_predicted
 
 
 def argmax_accuracy(outputs, labels) -> float:
     labels_predicted = outputs.argmax(dim=1)
-    accuracy = (labels == labels_predicted).type(torch.float32).mean()
-    return accuracy.item()
+    return calc_accuracy(labels_predicted=labels_predicted, labels_true=labels)

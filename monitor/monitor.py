@@ -7,9 +7,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.utils.data
-from sklearn.metrics.pairwise import manhattan_distances
+from sklearn.metrics import confusion_matrix, pairwise
 
-from monitor.accuracy import calc_accuracy, get_class_centroids, get_outputs, argmax_accuracy
+from monitor.accuracy import calc_accuracy, get_class_centroids, get_outputs, argmax_accuracy, predict_centroid_labels
 from monitor.batch_timer import timer, ScheduleStep
 from monitor.mutual_info import MutualInfoKMeans
 from monitor.var_online import VarianceOnline
@@ -206,18 +206,29 @@ class Monitor(object):
             ))
 
     def update_accuracy_train_test(self, model: nn.Module, outputs_train, labels_train):
+        def plot_accuracy_confusion_matrix(mode, labels_true, labels_predicted):
+            self.update_accuracy(accuracy=calc_accuracy(labels_true, labels_predicted), mode=f'full {mode}')
+            title = f"Confusion matrix {mode}"
+            confusion = confusion_matrix(labels_true, labels_predicted)
+            label_vals = list(range(confusion.shape[0]))
+            self.viz.heatmap(confusion, win=title, opts=dict(
+                title=title,
+                xlabel='Predicted label',
+                ylabel='True label',
+                ytickvals=label_vals,
+                xtickvals=label_vals,
+            ))
+
         outputs_test, labels_test = get_outputs(model, loader=self.test_loader)
         if self.use_argmax:
-            labels_predicted = outputs_train.argmax(dim=1)
-            accuracy = (labels_train == labels_predicted).type(torch.float32).mean()
-            self.update_accuracy(accuracy=accuracy, mode='full train')
-            self.update_accuracy(accuracy=argmax_accuracy(outputs_test, labels_test), mode='full test')
+            labels_predicted_train = outputs_train.argmax(dim=1)
+            labels_predicted_test = outputs_test.argmax(dim=1)
         else:
             embedding_centroids = get_class_centroids(outputs_train, labels_train)
-            self.update_accuracy(accuracy=calc_accuracy(embedding_centroids, outputs_train, labels_train),
-                                 mode='full train')
-            self.update_accuracy(accuracy=calc_accuracy(embedding_centroids, outputs_test, labels_test),
-                                 mode='full test')
+            labels_predicted_train = predict_centroid_labels(embedding_centroids, vectors_test=outputs_train)
+            labels_predicted_test = predict_centroid_labels(embedding_centroids, vectors_test=outputs_test)
+        plot_accuracy_confusion_matrix(mode='train', labels_true=labels_train, labels_predicted=labels_predicted_train)
+        plot_accuracy_confusion_matrix(mode='test', labels_true=labels_test, labels_predicted=labels_predicted_test)
 
     def epoch_finished(self, model: nn.Module, outputs_full, labels_full):
         self.update_accuracy_train_test(model, outputs_train=outputs_full, labels_train=labels_full)
@@ -324,7 +335,7 @@ class Monitor(object):
         :param labels: corresponding labels
         """
         def compute_manhattan_dist(tensor: torch.FloatTensor) -> float:
-            l1_dist = manhattan_distances(tensor.cpu())
+            l1_dist = pairwise.manhattan_distances(tensor.cpu())
             upper_triangle_idx = np.triu_indices_from(l1_dist, k=1)
             l1_dist = l1_dist[upper_triangle_idx].mean()
             return l1_dist
