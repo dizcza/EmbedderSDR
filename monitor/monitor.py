@@ -9,12 +9,12 @@ import torch.nn as nn
 import torch.utils.data
 from sklearn.metrics import confusion_matrix, pairwise
 
-from monitor.accuracy import calc_accuracy, get_class_centroids, get_outputs, argmax_accuracy, predict_centroid_labels
+from monitor.accuracy import calc_accuracy, get_outputs, Accuracy
 from monitor.batch_timer import timer, ScheduleStep
 from monitor.mutual_info import MutualInfoKMeans
 from monitor.var_online import VarianceOnline
 from monitor.viz import VisdomMighty
-from utils import factors_root
+from utils import factors_root, AdversarialExamples, get_normalize_inverse
 
 
 class ParamRecord(object):
@@ -110,19 +110,19 @@ class ParamsDict(UserDict):
 
 
 class Monitor(object):
-
     n_classes_format_ytickstep_1 = 10
 
-    def __init__(self, test_loader: torch.utils.data.DataLoader, use_argmax=False, env_name="main"):
+    def __init__(self, test_loader: torch.utils.data.DataLoader, accuracy_measure: Accuracy, env_name="main"):
         """
         :param test_loader: dataloader to test model performance at each epoch_finished() call
-        :param use_argmax: use argmax or centroid embeddings accuracy?
+        :param accuracy_measure: argmax or centroid embeddings accuracy measure
         :param env_name: Visdom environment name
         """
         self.timer = timer
         self.viz = VisdomMighty(env=env_name)
         self.test_loader = test_loader
-        self.use_argmax = use_argmax
+        self.normalize_inverse = get_normalize_inverse(self.test_loader.dataset.transform)
+        self.accuracy_measure = accuracy_measure
         self.param_records = ParamsDict()
         self.mutual_info = MutualInfoKMeans(estimate_size=int(1e3), compression_range=(0.5, 0.999))
         self.functions = []
@@ -138,7 +138,7 @@ class Monitor(object):
         self.log(lines)
 
     def log_self(self):
-        self.log(f"{self.__class__.__name__}(use_argmax={self.use_argmax})")
+        self.log(f"{self.__class__.__name__}(accuracy_measure={self.accuracy_measure.__class__.__name__})")
         self.log(f"FULL_FORWARD_PASS_SIZE: {os.environ.get('FULL_FORWARD_PASS_SIZE', '(all samples)')}")
         commit = subprocess.run(['git', 'rev-parse', 'HEAD'], stdout=subprocess.PIPE, universal_newlines=True)
         self.log(f"Git commit: {commit.stdout}")
@@ -205,33 +205,54 @@ class Monitor(object):
                 ytype='log',
             ))
 
-    def update_accuracy_train_test(self, model: nn.Module, outputs_train, labels_train):
-        def plot_accuracy_confusion_matrix(mode, labels_true, labels_predicted):
-            self.update_accuracy(accuracy=calc_accuracy(labels_true, labels_predicted), mode=f'full {mode}')
-            title = f"Confusion matrix {mode}"
-            confusion = confusion_matrix(labels_true, labels_predicted)
-            label_vals = list(range(confusion.shape[0]))
-            self.viz.heatmap(confusion, win=title, opts=dict(
-                title=title,
-                xlabel='Predicted label',
-                ylabel='True label',
-                ytickvals=label_vals,
-                xtickvals=label_vals,
-            ))
+    def plot_accuracy_confusion_matrix(self, labels_true, labels_predicted, mode):
+        self.update_accuracy(accuracy=calc_accuracy(labels_true, labels_predicted), mode=mode)
+        title = f"Confusion matrix '{mode}'"
+        confusion = confusion_matrix(labels_true, labels_predicted)
+        label_vals = list(range(confusion.shape[0]))
+        self.viz.heatmap(confusion, win=title, opts=dict(
+            title=title,
+            xlabel='Predicted label',
+            ylabel='True label',
+            ytickvals=label_vals,
+            xtickvals=label_vals,
+        ))
 
+    def update_accuracy_epoch(self, model: nn.Module, outputs_train, labels_train):
         outputs_test, labels_test = get_outputs(model, loader=self.test_loader)
-        if self.use_argmax:
-            labels_predicted_train = outputs_train.argmax(dim=1)
-            labels_predicted_test = outputs_test.argmax(dim=1)
-        else:
-            embedding_centroids = get_class_centroids(outputs_train, labels_train)
-            labels_predicted_train = predict_centroid_labels(embedding_centroids, vectors_test=outputs_train)
-            labels_predicted_test = predict_centroid_labels(embedding_centroids, vectors_test=outputs_test)
-        plot_accuracy_confusion_matrix(mode='train', labels_true=labels_train, labels_predicted=labels_predicted_train)
-        plot_accuracy_confusion_matrix(mode='test', labels_true=labels_test, labels_predicted=labels_predicted_test)
+        self.plot_accuracy_confusion_matrix(labels_true=labels_train,
+                                            labels_predicted=self.accuracy_measure.predict(outputs_train),
+                                            mode='full train')
+        self.plot_accuracy_confusion_matrix(labels_true=labels_test,
+                                            labels_predicted=self.accuracy_measure.predict(outputs_test),
+                                            mode='full test')
 
-    def epoch_finished(self, model: nn.Module, outputs_full, labels_full):
-        self.update_accuracy_train_test(model, outputs_train=outputs_full, labels_train=labels_full)
+    def plot_adversarial_examples(self, model: nn.Module, adversarial_examples: AdversarialExamples = None, n_show=20):
+        if adversarial_examples is None:
+            return
+        images_orig, images_adv, labels_true = adversarial_examples
+        with torch.no_grad():
+            outputs_orig = model(images_orig)
+            outputs_adv = model(images_adv)
+        accuracy_orig = calc_accuracy(labels_true=labels_true,
+                                      labels_predicted=self.accuracy_measure.predict(outputs_orig))
+        accuracy_adv = calc_accuracy(labels_true=labels_true,
+                                     labels_predicted=self.accuracy_measure.predict(outputs_adv))
+        self.update_accuracy(accuracy=accuracy_orig, mode='batch')
+        self.update_accuracy(accuracy=accuracy_adv, mode='adversarial')
+        for mode, images_mode in (("Original", images_orig), ("Adversarial", images_adv)):
+            n_show = min(n_show, len(images_mode))
+            images_mode = images_mode[: n_show]
+            if self.normalize_inverse is not None:
+                images_mode = torch.stack(list(map(self.normalize_inverse, images_mode)))
+            images_mode *= 255
+            self.viz.images(images_mode, nrow=5, win=f'{mode} images', opts=dict(title=f'{mode} images'))
+
+    def epoch_finished(self, model: nn.Module, outputs_full, labels_full,
+                       adversarial_examples: AdversarialExamples = None):
+        self.accuracy_measure.save(outputs_train=outputs_full, labels_train=labels_full)
+        self.update_accuracy_epoch(model, outputs_train=outputs_full, labels_train=labels_full)
+        self.plot_adversarial_examples(model, adversarial_examples)
         # self.update_distribution()
         self.mutual_info.plot(self.viz)
         for monitored_function in self.functions:
@@ -294,6 +315,7 @@ class Monitor(object):
         :param model: current model
         :param by_dim: use hitmap_by_dim for the last layer's weights
         """
+
         def heatmap(tensor: torch.FloatTensor, win: str):
             while tensor.dim() > 2:
                 tensor = tensor.mean(dim=0)
@@ -334,11 +356,13 @@ class Monitor(object):
         :param outputs: the last layer activations
         :param labels: corresponding labels
         """
+
         def compute_manhattan_dist(tensor: torch.FloatTensor) -> float:
             l1_dist = pairwise.manhattan_distances(tensor.cpu())
             upper_triangle_idx = np.triu_indices_from(l1_dist, k=1)
             l1_dist = l1_dist[upper_triangle_idx].mean()
             return l1_dist
+
         outputs = outputs.detach()
         class_centroids = []
         std_centroids = []
@@ -371,6 +395,6 @@ class Monitor(object):
             title='How much do patterns differ in L1 measure?',
         ))
 
-    @ScheduleStep(epoch_step=10)
+    @ScheduleStep(epoch_step=20)
     def save_heatmap(self, heatmap, win, opts):
         self.viz.heatmap(heatmap, win=f"{win}. Epoch {self.timer.epoch}", opts=opts)

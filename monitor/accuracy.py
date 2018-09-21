@@ -1,4 +1,5 @@
 import os
+from abc import ABC
 
 import torch
 import torch.nn as nn
@@ -44,32 +45,50 @@ def get_outputs(model: nn.Module, loader: torch.utils.data.DataLoader):
     return outputs_full, labels_full
 
 
-def get_class_centroids(vectors: torch.FloatTensor, labels) -> torch.FloatTensor:
-    assert len(vectors) == len(labels)
-    centroids = []
-    for label in labels.unique(sorted=True):
-        centroids.append(vectors[labels == label].mean(dim=0))
-    centroids = torch.stack(centroids, dim=0)
-    return centroids
-
-
 def calc_accuracy(labels_true, labels_predicted) -> float:
     accuracy = (labels_true == labels_predicted).type(torch.float32).mean()
     return accuracy.item()
 
 
-def predict_centroid_labels(centroids: torch.FloatTensor, vectors_test: torch.FloatTensor):
-    """
-    Predicts the label based on L1 shortest distance to each of centroids.
-    :param centroids: matrix of (n_classes, embedding_dim) shape
-    :param vectors_test: matrix of (n_samples, embedding_dim) shape
-    :return: predicted labels
-    """
-    distances = (vectors_test.unsqueeze(dim=1) - centroids).abs_().sum(dim=-1)
-    labels_predicted = distances.argmin(dim=1)
-    return labels_predicted
+class Accuracy(ABC):
+
+    def save(self, outputs_train, labels_train):
+        """
+        If accuracy measure is not argmax (if the model doesn't end with a softmax layer),
+        the output is embedding vector, which has to be stored and retrieved at prediction.
+        :param outputs_train: model output on the train set
+        :param labels_train: train set labels
+        """
+        pass
+
+    def predict(self, outputs_test):
+        """
+        :param outputs_test: model output on the train or test set
+        :return: predicted labels
+        """
+        raise NotImplementedError
 
 
-def argmax_accuracy(outputs, labels) -> float:
-    labels_predicted = outputs.argmax(dim=1)
-    return calc_accuracy(labels_predicted=labels_predicted, labels_true=labels)
+class AccuracyArgmax(Accuracy):
+
+    def predict(self, outputs_test):
+        labels_predicted = outputs_test.argmax(dim=-1)
+        return labels_predicted
+
+
+class AccuracyCentroids(Accuracy):
+
+    def __init__(self):
+        self.centroids = []
+
+    def save(self, outputs_train, labels_train):
+        self.centroids = []
+        for label in labels_train.unique(sorted=True):
+            self.centroids.append(outputs_train[labels_train == label].mean(dim=0))
+        self.centroids = torch.stack(self.centroids, dim=0)
+
+    def predict(self, outputs_test):
+        assert len(self.centroids) > 0, "Save train embeddings first"
+        distances = (outputs_test.unsqueeze(dim=1) - self.centroids).abs_().sum(dim=-1)
+        labels_predicted = distances.argmin(dim=1)
+        return labels_predicted

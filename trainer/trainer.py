@@ -8,12 +8,12 @@ import torch.nn as nn
 import torch.utils.data
 from tqdm import tqdm
 
-from monitor.accuracy import get_outputs
+from monitor.accuracy import get_outputs, AccuracyCentroids, AccuracyArgmax
 from monitor.batch_timer import timer
 from monitor.monitor import Monitor
 from trainer.checkpoint import Checkpoint
 from loss import ContrastiveLoss
-from utils import get_data_loader, find_named_layers
+from utils import get_data_loader, find_named_layers, AdversarialExamples
 
 
 class Trainer(ABC):
@@ -29,8 +29,12 @@ class Trainer(ABC):
         env_name = self.env_name
         if env_suffix:
             env_name += f" {env_suffix}"
+        if isinstance(self.criterion, ContrastiveLoss):
+            accuracy_measure = AccuracyCentroids()
+        else:
+            accuracy_measure = AccuracyArgmax()
         self.monitor = Monitor(test_loader=get_data_loader(self.dataset_name, train=False),
-                               use_argmax=not isinstance(self.criterion, ContrastiveLoss),
+                               accuracy_measure=accuracy_measure,
                                env_name=env_name)
         for name, layer in find_named_layers(self.model, layer_class=self.watch_modules):
             self.monitor.register_layer(layer, prefix=name)
@@ -62,14 +66,34 @@ class Trainer(ABC):
         self.checkpoint.step(model=self.model, loss=loss)
         return loss
 
+    def get_adversarial_examples(self, noise_ampl=0.01, n_iter=2):
+        """
+        :param noise_ampl: adversarial sign noise amplitude
+        :param n_iter: adversarial iterations
+        :return adversarial examples
+        """
+        images, labels = next(iter(self.train_loader))
+        images_orig = images.clone()
+        images.requires_grad_()
+        for i in range(n_iter):
+            images.grad = None
+            outputs = self.model(images)
+            loss = self.criterion(outputs, labels)
+            loss.backward()
+            with torch.no_grad():
+                adv_noise = noise_ampl * images.grad.sign()
+                images += adv_noise
+        return AdversarialExamples(original=images_orig, adversarial=images, labels=labels)
+
     def train(self, n_epoch=10, epoch_update_step=1, watch_parameters=False,
-              mutual_info_layers=5):
+              mutual_info_layers=1, adversarial=False):
         """
         :param n_epoch: number of training epochs
         :param epoch_update_step: epoch step to run full evaluation
         :param watch_parameters: turn on/off excessive parameters monitoring
         :param mutual_info_layers: number of last layers to be monitored for mutual information;
                                    pass '0' to turn off this feature.
+        :param adversarial: perform adversarial attack test?
         """
         print(self.model)
         self.monitor_functions()
@@ -113,7 +137,11 @@ class Trainer(ABC):
                 # self.monitor.update_loss(loss=loss.item(), mode='batch')
 
             if epoch % epoch_update_step == 0:
+                if adversarial:
+                    adversarial_examples = self.get_adversarial_examples()
+                else:
+                    adversarial_examples = None
                 self.monitor.update_loss(loss=loss.item(), mode='batch')
                 outputs_full, labels_full = get_outputs_eval(self.model)
-                self.monitor.epoch_finished(self.model, outputs_full, labels_full)
+                self.monitor.epoch_finished(self.model, outputs_full, labels_full, adversarial_examples)
                 self._epoch_finished(epoch, outputs_full, labels_full)

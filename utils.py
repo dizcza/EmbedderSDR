@@ -3,6 +3,7 @@ import time
 from functools import lru_cache, wraps
 from pathlib import Path
 from typing import Tuple
+from collections import namedtuple
 
 import torch
 import torch.nn as nn
@@ -19,6 +20,9 @@ DATASET_IMAGE_SIZE = {
     "FashionMNIST": 28,
     "CIFAR10": 32,
 }
+
+
+AdversarialExamples = namedtuple("AdversarialExamples", ("original", "adversarial", "labels"))
 
 
 @lru_cache(maxsize=32, typed=False)
@@ -115,15 +119,36 @@ class NormalizeFromDataset(transforms.Normalize):
         super().__init__(mean=mean, std=std)
 
 
+class NormalizeInverse(transforms.Normalize):
+    """
+    Undoes the normalization and returns the reconstructed images in the input domain.
+    """
+
+    def __init__(self, mean, std):
+        std_inv = 1 / (std + 1e-7)
+        mean_inv = -mean * std_inv
+        super().__init__(mean=mean_inv, std=std_inv)
+
+
+def get_normalize_inverse(transform_composed: transforms.Compose):
+    if transform_composed is None:
+        return None
+    for transform in transform_composed.transforms:
+        if isinstance(transform, transforms.Normalize):
+            return NormalizeInverse(mean=transform.mean, std=transform.std)
+    return None
+
+
 class DataSubset(torch.utils.data.TensorDataset):
 
     def __init__(self, dataset_cls, labels_keep: Tuple, train: bool):
         self.labels_keep = labels_keep
         self.train = train
+        self.transform = transforms.Compose([transforms.ToTensor(), NormalizeFromDataset(dataset_cls=dataset_cls)])
         data_path = self.get_data_path()
         if not data_path.exists():
-            mnist = dataset_cls(DATA_DIR, train=train, transform=transforms.ToTensor(), download=True)
-            self.process_mnist(mnist)
+            original_dataset = dataset_cls(DATA_DIR, train=train, transform=self.transform, download=True)
+            self.process_dataset(original_dataset)
         with open(data_path, 'rb') as f:
             data, targets = torch.load(f)
         super().__init__(data, targets)
@@ -131,19 +156,16 @@ class DataSubset(torch.utils.data.TensorDataset):
     def get_data_path(self):
         return DATA_DIR.joinpath(self.__class__.__name__, 'train.pt' if self.train else 'test.pt')
 
-    def process_mnist(self, mnist: torch.utils.data.Dataset):
+    def process_dataset(self, dataset: torch.utils.data.Dataset):
         data = []
         targets = []
         train_str = "train" if self.train else "test"
-        for image, label_old in tqdm(mnist, desc=f"Preparing {self.__class__.__name__} {train_str} dataset"):
+        for image, label_old in tqdm(dataset, desc=f"Preparing {self.__class__.__name__} {train_str} dataset"):
             if label_old in self.labels_keep:
                 label_new = self.labels_keep.index(label_old)
                 targets.append(label_new)
                 data.append(image)
         data = torch.stack(data, dim=0)
-        data_mean = data.mean(dim=0)
-        data_std = data.std(dim=0) + 1e-6
-        data = (data - data_mean) / data_std
         targets = torch.LongTensor(targets)
         data_path = self.get_data_path()
         data_path.parent.mkdir(exist_ok=True, parents=True)
