@@ -16,9 +16,7 @@ def get_kwta_threshold(tensor: torch.FloatTensor, k_active):
 class _KWinnersTakeAllFunction(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, tensor, sparsity: float):
-        batch_size, embedding_size = tensor.shape
-        k_active = math.ceil(sparsity * embedding_size)
+    def forward(ctx, tensor, k_active: int):
         threshold = get_kwta_threshold(tensor, k_active=k_active)
         mask_active = tensor > threshold
         return mask_active.type(torch.float32)
@@ -30,42 +28,79 @@ class _KWinnersTakeAllFunction(torch.autograd.Function):
 
 class KWinnersTakeAll(nn.Module):
 
-    def __init__(self, sparsity=SPARSITY):
+    def __init__(self, sparsity=SPARSITY, connect_lateral=False):
         """
         :param sparsity: how many bits leave active
+        :param connect_lateral: use lateral weights to wire activated neurons?
         """
         super().__init__()
         assert 0. <= sparsity <= 1., "Sparsity should lie in (0, 1) interval"
         self.sparsity = sparsity
+        self.connect_lateral = connect_lateral
+        self.weight_lateral = None
 
-    def forward(self, x):
-        x = _KWinnersTakeAllFunction.apply(x, self.sparsity)
+    def forward_kwta(self, x, k_active):
+        x = _KWinnersTakeAllFunction.apply(x, k_active)
         return x
 
+    def forward_lateral(self, x_input):
+        batch_size, embedding_size = x_input.shape
+        k_active = math.ceil(self.sparsity * embedding_size)
+        if self.training:
+            k_active_forward = k_active
+        else:
+            k_active_forward = k_active // 2
+        if self.weight_lateral is None:
+            self.weight_lateral = torch.zeros(embedding_size, embedding_size, device=x_input.device)
+            k_active_forward = k_active
+        x_output = self.forward_kwta(x_input, k_active_forward)
+        mask_active = x_output > 0.5
+        if self.training:
+            for mask_active_sample in mask_active:
+                self.weight_lateral[mask_active_sample.nonzero(), mask_active_sample] += 1
+        else:
+            k_active_lateral = k_active - k_active_forward
+            x_lateral = x_output @ self.weight_lateral
+            x_lateral[mask_active] = 0  # don't select already active neurons
+            _, argsort = x_lateral.sort(dim=1, descending=True)
+            arange = torch.arange(batch_size, device=x_output.device).unsqueeze_(dim=1)
+            x_output[arange, argsort[:, :k_active_lateral]] = 1
+        return x_output
+
+    def forward(self, x):
+        if self.connect_lateral:
+            return self.forward_lateral(x)
+        else:
+            batch_size, embedding_size = x.shape
+            k_active = math.ceil(self.sparsity * embedding_size)
+            return self.forward_kwta(x, k_active)
+
+    def clear_lateral(self):
+        self.weight_lateral = None
+
     def extra_repr(self):
-        return f'sparsity={self.sparsity}'
+        return f'sparsity={self.sparsity}, connect_lateral={self.connect_lateral}'
 
 
 class KWinnersTakeAllSoft(KWinnersTakeAll):
 
-    def __init__(self, sparsity=SPARSITY, hardness=10):
+    def __init__(self, sparsity=SPARSITY, connect_lateral=False, hardness=1):
         """
         :param sparsity: how many bits leave active
+        :param connect_lateral: use lateral weights to wire activated neurons?
         :param hardness: exponent power in sigmoid function;
                          the larger the hardness, the closer sigmoid to the true kwta distribution.
         """
-        super().__init__(sparsity)
+        super().__init__(sparsity=sparsity, connect_lateral=connect_lateral)
         self.hardness = hardness
 
-    def forward(self, x):
+    def forward_kwta(self, x, k_active):
         if self.training:
-            batch_size, embedding_size = x.shape
-            k_active = math.ceil(self.sparsity * embedding_size)
             threshold = get_kwta_threshold(x, k_active=k_active)
             x_scaled = self.hardness * (x - threshold)
             return x_scaled.sigmoid()
         else:
-            return _KWinnersTakeAllFunction.apply(x, self.sparsity)
+            return super().forward_kwta(x, k_active)
 
     def extra_repr(self):
         old_repr = super().extra_repr()

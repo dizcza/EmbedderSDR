@@ -33,6 +33,7 @@ class KWTAScheduler:
             self.epoch = epoch
         if self.need_update():
             for layer in self.kwta_layers:
+                layer.clear_lateral()
                 layer.sparsity = max(layer.sparsity * self.gamma_sparsity, self.min_sparsity)
                 if isinstance(layer, KWinnersTakeAllSoft):
                     layer.hardness = min(layer.hardness * self.gamma_hardness, self.max_hardness)
@@ -65,35 +66,59 @@ class TrainerGradKWTA(TrainerGrad):
 
     def monitor_functions(self):
         super().monitor_functions()
+        kwta_named_layers = tuple(find_named_layers(self.model, layer_class=KWinnersTakeAll))
+
+        def lateral_weights(viz):
+            for name, layer in kwta_named_layers:
+                if layer.weight_lateral is not None:
+                    title = f"kWTA {name}.lateral_weights"
+                    viz.heatmap(layer.weight_lateral, win=title, opts=dict(
+                        xlabel='Neuron id',
+                        ylabel='Neuron id',
+                        title=title,
+                    ))
+        self.monitor.register_func(lateral_weights)
+
         if self.kwta_scheduler is not None:
-            kwta_layers = tuple(find_layers(self.model, layer_class=KWinnersTakeAll))
-            kwta_layers_soft = tuple(find_layers(self.model, layer_class=KWinnersTakeAllSoft))
+            kwta_named_layers_soft = tuple(find_named_layers(self.model, layer_class=KWinnersTakeAllSoft))
 
             def sparsity(viz):
-                viz.line_update(y=[layer.sparsity for layer in kwta_layers], opts=dict(
+                layers_sparsity = []
+                names = []
+                for name, layer in kwta_named_layers:
+                    layers_sparsity.append(layer.sparsity)
+                    names.append(name)
+                viz.line_update(y=layers_sparsity, opts=dict(
                     xlabel='Epoch',
                     ylabel='sparsity',
                     title='KWinnersTakeAll.sparsity',
+                    legend=names,
                     ytype='log',
                 ))
 
             def hardness(viz):
-                viz.line_update(y=[layer.hardness for layer in kwta_layers_soft], opts=dict(
+                layers_hardness = []
+                names = []
+                for name, layer in kwta_named_layers_soft:
+                    layers_hardness.append(layer.hardness)
+                    names.append(name)
+                viz.line_update(y=layers_hardness, opts=dict(
                     xlabel='Epoch',
                     ylabel='hardness',
                     title='KWinnersTakeAllSoft.hardness',
+                    legend=names,
                     ytype='log',
                 ))
 
             self.monitor.register_func(sparsity, hardness)
 
-        synaptic_scale_layers = tuple(find_named_layers(self.model, SynapticScaling))
-        if len(synaptic_scale_layers) > 0:
+        synaptic_scale_named_layers = tuple(find_named_layers(self.model, SynapticScaling))
+        if len(synaptic_scale_named_layers) > 0:
 
             def monitor_synaptic_scaling(viz):
                 rownames = []
                 frequency = []
-                for name, layer in synaptic_scale_layers:
+                for name, layer in synaptic_scale_named_layers:
                     rownames.append(name)
                     frequency.append(layer.frequency)
                 frequency = torch.stack(frequency, dim=0)
