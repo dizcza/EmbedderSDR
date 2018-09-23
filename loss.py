@@ -5,7 +5,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from constants import MAX_L0_DIST
 from monitor.batch_timer import timer
 
 
@@ -22,31 +21,30 @@ class ContrastiveLoss(nn.Module, ABC):
         if self.metric == 'cosine':
             self.margin = 0.5
         else:
-            self.margin = 0.7 * MAX_L0_DIST
+            self.margin = 0.75
+
+    @property
+    def power(self):
+        if self.metric == 'l1':
+            return 1
+        elif self.metric == 'l2':
+            return 2
+        else:
+            raise NotImplementedError
 
     def extra_repr(self):
         return f'metric={self.metric}, margin={self.margin}'
 
     def distance(self, input1, input2, is_same: bool):
         if self.metric == 'cosine':
-            targets = torch.ones(max(len(input1), len(input2)))
-            if input1.is_cuda:
-                targets = targets.cuda()
+            targets = torch.ones(max(len(input1), len(input2)), device=input1.device)
             if not is_same:
                 targets *= -1
             return F.cosine_embedding_loss(input1, input2, target=targets, margin=self.margin, reduction='none')
         else:
-            diff = input1 - input2
-            if self.metric == 'l2':
-                dist = torch.pow(diff, 2).sum(dim=1)
-            elif self.metric == 'l1':
-                dist = diff.abs().sum(dim=1)
-            else:
-                raise NotImplementedError()
+            dist = (input1 - input2).norm(p=self.power, dim=1)
             if not is_same:
-                zeros = torch.zeros(len(dist))
-                if dist.is_cuda:
-                    zeros = zeros.cuda()
+                zeros = torch.zeros_like(dist, device=dist.device)
                 dist = torch.max(zeros, self.margin - dist)
             return dist
 
@@ -116,6 +114,8 @@ class ContrastiveLossBatch(ContrastiveLoss):
         nonzero = (outputs != 0).any(dim=1)
         outputs = outputs[nonzero]
         labels = labels[nonzero]
+        if self.metric != 'cosine':
+            outputs = outputs / outputs.norm(p=self.power, dim=1).mean()
         if self.random_pairs or timer.is_epoch_finished():
             # if an epoch is finished, use random pairs no matter what the mode is
             dist_same, dist_other = self.forward_random(outputs, labels)

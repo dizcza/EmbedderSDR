@@ -1,7 +1,5 @@
 import torch.nn as nn
 
-from constants import EMBEDDING_SIZE
-
 
 class EmbedderSDR(nn.Module):
 
@@ -16,7 +14,7 @@ class EmbedderSDR(nn.Module):
             x = self.last_layer(x)
         return x
 
-    def __init__(self, last_layer=None, dataset_name="MNIST", conv_channels=3):
+    def __init__(self, last_layer=None, dataset_name="MNIST", conv_channels=3, out_features=128):
         super().__init__()
         if "MNIST" in dataset_name:
             conv_in_channels = 1
@@ -30,5 +28,5 @@ class EmbedderSDR(nn.Module):
         self.bn = nn.BatchNorm2d(num_features=conv_channels)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3)
-        self.fc_emb = nn.Linear(in_features=linear_in_features, out_features=EMBEDDING_SIZE, bias=False)
+        self.fc_emb = nn.Linear(in_features=linear_in_features, out_features=out_features, bias=False)
         self.last_layer = last_layer
