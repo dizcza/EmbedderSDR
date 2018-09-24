@@ -66,9 +66,9 @@ class Trainer(ABC):
         self.checkpoint.step(model=self.model, loss=loss)
         return loss
 
-    def get_adversarial_examples(self, noise_ampl=0.01, n_iter=2):
+    def get_adversarial_examples(self, noise_ampl=100, n_iter=10):
         """
-        :param noise_ampl: adversarial sign noise amplitude
+        :param noise_ampl: adversarial noise amplitude
         :param n_iter: adversarial iterations
         :return adversarial examples
         """
@@ -81,7 +81,7 @@ class Trainer(ABC):
             loss = self.criterion(outputs, labels)
             loss.backward()
             with torch.no_grad():
-                adv_noise = noise_ampl * images.grad.sign()
+                adv_noise = noise_ampl * images.grad
                 images += adv_noise
         images.requires_grad_(False)
         return AdversarialExamples(original=images_orig, adversarial=images, labels=labels)
