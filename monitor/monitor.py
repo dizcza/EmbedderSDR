@@ -227,32 +227,40 @@ class Monitor(object):
                                             labels_predicted=self.accuracy_measure.predict(outputs_test),
                                             mode='full test')
 
-    def plot_adversarial_examples(self, model: nn.Module, adversarial_examples: AdversarialExamples = None, n_show=20):
+    def plot_adversarial_examples(self, model: nn.Module, adversarial_examples: AdversarialExamples = None, n_show=10):
         if adversarial_examples is None:
             return
         images_orig, images_adv, labels_true = adversarial_examples
+        saved_mode = model.training
+        model.eval()
         with torch.no_grad():
             outputs_orig = model(images_orig)
             outputs_adv = model(images_adv)
+        model.train(saved_mode)
         accuracy_orig = calc_accuracy(labels_true=labels_true,
                                       labels_predicted=self.accuracy_measure.predict(outputs_orig))
         accuracy_adv = calc_accuracy(labels_true=labels_true,
                                      labels_predicted=self.accuracy_measure.predict(outputs_adv))
         self.update_accuracy(accuracy=accuracy_orig, mode='batch')
         self.update_accuracy(accuracy=accuracy_adv, mode='adversarial')
-        for mode, images_mode in (("Original", images_orig), ("Adversarial", images_adv)):
-            n_show = min(n_show, len(images_mode))
-            images_mode = images_mode[: n_show]
+        images_stacked = []
+        for images in (images_orig, images_adv):
+            n_show = min(n_show, len(images))
+            images = images[: n_show]
             if self.normalize_inverse is not None:
-                images_mode = torch.stack(list(map(self.normalize_inverse, images_mode)))
-            images_mode *= 255
-            self.viz.images(images_mode, nrow=5, win=f'{mode} images', opts=dict(title=f'{mode} images'))
+                images = list(map(self.normalize_inverse, images))
+                images = torch.cat(images, dim=2)
+            images_stacked.append(images)
+        adv_noise = images_stacked[1] - images_stacked[0]
+        adv_noise /= (adv_noise.max() - adv_noise.min())
+        images_stacked.insert(1, adv_noise)
+        images_stacked = torch.cat(images_stacked, dim=1)
+        images_stacked *= 255
+        self.viz.image(images_stacked, win='Adversarial examples', opts=dict(title='Adversarial examples'))
 
-    def epoch_finished(self, model: nn.Module, outputs_full, labels_full,
-                       adversarial_examples: AdversarialExamples = None):
+    def epoch_finished(self, model: nn.Module, outputs_full, labels_full):
         self.accuracy_measure.save(outputs_train=outputs_full, labels_train=labels_full)
         self.update_accuracy_epoch(model, outputs_train=outputs_full, labels_train=labels_full)
-        self.plot_adversarial_examples(model, adversarial_examples)
         # self.update_distribution()
         self.mutual_info.plot(self.viz)
         for monitored_function in self.functions:

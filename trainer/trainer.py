@@ -74,7 +74,7 @@ class Trainer(ABC):
         """
         images, labels = next(iter(self.train_loader))
         images_orig = images.clone()
-        images.requires_grad_()
+        images.requires_grad_(True)
         for i in range(n_iter):
             images.grad = None
             outputs = self.model(images)
@@ -83,6 +83,7 @@ class Trainer(ABC):
             with torch.no_grad():
                 adv_noise = noise_ampl * images.grad.sign()
                 images += adv_noise
+        images.requires_grad_(False)
         return AdversarialExamples(original=images_orig, adversarial=images, labels=labels)
 
     def train(self, n_epoch=10, epoch_update_step=1, watch_parameters=False,
@@ -137,11 +138,9 @@ class Trainer(ABC):
                 # self.monitor.update_loss(loss=loss.item(), mode='batch')
 
             if epoch % epoch_update_step == 0:
-                if adversarial:
-                    adversarial_examples = self.get_adversarial_examples()
-                else:
-                    adversarial_examples = None
                 self.monitor.update_loss(loss=loss.item(), mode='batch')
                 outputs_full, labels_full = get_outputs_eval(self.model)
-                self.monitor.epoch_finished(self.model, outputs_full, labels_full, adversarial_examples)
+                self.monitor.epoch_finished(self.model, outputs_full, labels_full)
+                if adversarial:
+                    self.monitor.plot_adversarial_examples(self.model, self.get_adversarial_examples())
                 self._epoch_finished(epoch, outputs_full, labels_full)
