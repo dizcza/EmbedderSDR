@@ -252,14 +252,14 @@ class Monitor(object):
                 images = torch.cat(images, dim=2)
             images_stacked.append(images)
         adv_noise = images_stacked[1] - images_stacked[0]
-        adv_noise /= (adv_noise.max() - adv_noise.min())
+        adv_noise -= adv_noise.min()
+        adv_noise /= adv_noise.max()
         images_stacked.insert(1, adv_noise)
         images_stacked = torch.cat(images_stacked, dim=1)
-        images_stacked *= 255
+        images_stacked.clamp_(0, 1)
         self.viz.image(images_stacked, win='Adversarial examples', opts=dict(title='Adversarial examples'))
 
     def epoch_finished(self, model: nn.Module, outputs_full, labels_full):
-        self.accuracy_measure.save(outputs_train=outputs_full, labels_train=labels_full)
         self.update_accuracy_epoch(model, outputs_train=outputs_full, labels_train=labels_full)
         # self.update_distribution()
         self.mutual_info.plot(self.viz)

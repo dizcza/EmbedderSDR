@@ -8,11 +8,12 @@ import torch.nn as nn
 import torch.utils.data
 from tqdm import tqdm
 
-from monitor.accuracy import get_outputs, AccuracyCentroids, AccuracyArgmax
+from loss import ContrastiveLoss
+from monitor.accuracy import get_outputs, AccuracyEmbedding, AccuracyArgmax
 from monitor.batch_timer import timer
 from monitor.monitor import Monitor
 from trainer.checkpoint import Checkpoint
-from loss import ContrastiveLoss
+from trainer.mask_trainer import MaskTrainer
 from utils import get_data_loader, find_named_layers, AdversarialExamples
 
 
@@ -30,21 +31,22 @@ class Trainer(ABC):
         if env_suffix:
             env_name += f" {env_suffix}"
         if isinstance(self.criterion, ContrastiveLoss):
-            accuracy_measure = AccuracyCentroids()
+            self.accuracy_measure = AccuracyEmbedding()
         else:
-            accuracy_measure = AccuracyArgmax()
+            self.accuracy_measure = AccuracyArgmax()
         self.monitor = Monitor(test_loader=get_data_loader(self.dataset_name, train=False),
-                               accuracy_measure=accuracy_measure,
+                               accuracy_measure=self.accuracy_measure,
                                env_name=env_name)
         for name, layer in find_named_layers(self.model, layer_class=self.watch_modules):
             self.monitor.register_layer(layer, prefix=name)
         self.checkpoint = Checkpoint(model=self.model, patience=patience)
+        images, labels = next(iter(self.train_loader))
+        self.mask_trainer = MaskTrainer(accuracy_measure=self.accuracy_measure, channels=images.shape[1])
 
     @property
     def env_name(self) -> str:
         env_name = f"{time.strftime('%Y.%m.%d')} {self.model.__class__.__name__}: " \
                    f"{self.dataset_name} {self.__class__.__name__}"
-        env_name = env_name.replace('_', '-')  # visdom things
         return env_name
 
     def monitor_functions(self):
@@ -65,6 +67,38 @@ class Trainer(ABC):
         self.monitor.update_loss(loss, mode='full train')
         self.checkpoint.step(model=self.model, loss=loss)
         return loss
+
+    def train_mask(self):
+        """
+        Train mask to see what part of the image is crucial from the network perspective.
+        """
+        images, labels = next(iter(self.train_loader))
+        with torch.no_grad():
+            proba = self.accuracy_measure.predict_proba(self.model(images))
+        proba_max, _ = proba.max(dim=1)
+        sample_max_proba = proba_max.argmax()
+        image = images[sample_max_proba]
+        label = labels[sample_max_proba]
+        proba_original = proba[sample_max_proba, label]
+
+        mask, loss_trace, image_perturbed = self.mask_trainer.train_mask(model=self.model, image=image,
+                                                                         label_true=label)
+        with torch.no_grad():
+            outputs_perturbed = self.model(image_perturbed.unsqueeze(dim=0))
+        proba_perturbed = self.accuracy_measure.predict_proba(outputs_perturbed)
+        proba_perturbed = proba_perturbed[0, label]
+        image = self.monitor.normalize_inverse(image)
+        image_perturbed = self.monitor.normalize_inverse(image_perturbed)
+        image_masked = mask * image
+        images_stacked = torch.stack([image, mask, image_masked, image_perturbed], dim=0)
+        images_stacked.clamp_(0, 1)
+        self.monitor.viz.images(images_stacked, nrow=len(images_stacked), win='masked images', opts=dict(
+            title=f"Masked image decreases probability {proba_original:.4f} -> {proba_perturbed:.4f}"
+        ))
+        self.monitor.viz.line(Y=loss_trace, win='mask loss', opts=dict(
+            xlabel='Iteration',
+            title='Mask loss'
+        ))
 
     def get_adversarial_examples(self, noise_ampl=100, n_iter=10):
         """
@@ -87,7 +121,7 @@ class Trainer(ABC):
         return AdversarialExamples(original=images_orig, adversarial=images, labels=labels)
 
     def train(self, n_epoch=10, epoch_update_step=1, watch_parameters=False,
-              mutual_info_layers=1, adversarial=False):
+              mutual_info_layers=1, adversarial=False, mask_explain=False):
         """
         :param n_epoch: number of training epochs
         :param epoch_update_step: epoch step to run full evaluation
@@ -95,6 +129,7 @@ class Trainer(ABC):
         :param mutual_info_layers: number of last layers to be monitored for mutual information;
                                    pass '0' to turn off this feature.
         :param adversarial: perform adversarial attack test?
+        :param mask_explain: train the image mask that 'explains' network behaviour?
         """
         print(self.model)
         self.monitor_functions()
@@ -140,7 +175,10 @@ class Trainer(ABC):
             if epoch % epoch_update_step == 0:
                 self.monitor.update_loss(loss=loss.item(), mode='batch')
                 outputs_full, labels_full = get_outputs_eval(self.model)
+                self.accuracy_measure.save(outputs_train=outputs_full, labels_train=labels_full)
                 self.monitor.epoch_finished(self.model, outputs_full, labels_full)
                 if adversarial:
                     self.monitor.plot_adversarial_examples(self.model, self.get_adversarial_examples())
+                if mask_explain:
+                    self.train_mask()
                 self._epoch_finished(epoch, outputs_full, labels_full)

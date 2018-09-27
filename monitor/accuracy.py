@@ -64,31 +64,60 @@ class Accuracy(ABC):
     def predict(self, outputs_test):
         """
         :param outputs_test: model output on the train or test set
-        :return: predicted labels
+        :return: predicted labels of shape (N,)
+        """
+        return self.predict_proba(outputs_test).argmax(dim=1)
+
+    def predict_proba(self, outputs_test):
+        """
+        :param outputs_test: model output on the train or test set
+        :return: predicted probabilities tensor of shape (N x C),
+                 where C is the number of classes
         """
         raise NotImplementedError
 
 
 class AccuracyArgmax(Accuracy):
 
+    def __init__(self):
+        super().__init__()
+        self.softmax = nn.Softmax(dim=1)
+
     def predict(self, outputs_test):
         labels_predicted = outputs_test.argmax(dim=-1)
         return labels_predicted
 
+    def predict_proba(self, outputs_test):
+        outputs_test = outputs_test.cpu()
+        return self.softmax(outputs_test)
 
-class AccuracyCentroids(Accuracy):
+
+class AccuracyEmbedding(Accuracy):
+    """
+    Calculates the accuracy of embedding vectors.
+    """
 
     def __init__(self):
         self.centroids = []
 
+    def distances(self, outputs_test):
+        assert len(self.centroids) > 0, "Save train embeddings first"
+        outputs_test = outputs_test.cpu()
+        distances = (outputs_test.unsqueeze(dim=1) - self.centroids).abs_().sum(dim=-1)
+        return distances
+
     def save(self, outputs_train, labels_train):
+        outputs_train = outputs_train.cpu()
         self.centroids = []
         for label in labels_train.unique(sorted=True):
             self.centroids.append(outputs_train[labels_train == label].mean(dim=0))
         self.centroids = torch.stack(self.centroids, dim=0)
 
     def predict(self, outputs_test):
-        assert len(self.centroids) > 0, "Save train embeddings first"
-        distances = (outputs_test.unsqueeze(dim=1) - self.centroids).abs_().sum(dim=-1)
-        labels_predicted = distances.argmin(dim=1)
+        labels_predicted = self.distances(outputs_test).argmin(dim=1)
         return labels_predicted
+
+    def predict_proba(self, outputs_test):
+        distances = self.distances(outputs_test)
+        proba = 1 - distances / distances.sum(dim=1).unsqueeze(1)
+        return proba

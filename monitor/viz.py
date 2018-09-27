@@ -13,6 +13,7 @@ class VisdomMighty(visdom.Visdom):
     def __init__(self, env: str = "main"):
         port = int(os.environ.get('VISDOM_PORT', 8097))
         server = os.environ.get('VISDOM_SERVER', 'http://localhost')
+        env = env.replace('_', '-')  # visdom things
         super().__init__(env=env, server=server, port=port)
         self.close(env=self.env)
         self.timer = timer
