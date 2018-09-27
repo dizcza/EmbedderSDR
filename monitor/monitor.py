@@ -227,9 +227,7 @@ class Monitor(object):
                                             labels_predicted=self.accuracy_measure.predict(outputs_test),
                                             mode='full test')
 
-    def plot_adversarial_examples(self, model: nn.Module, adversarial_examples: AdversarialExamples = None, n_show=10):
-        if adversarial_examples is None:
-            return
+    def plot_adversarial_examples(self, model: nn.Module, adversarial_examples: AdversarialExamples, n_show=10):
         images_orig, images_adv, labels_true = adversarial_examples
         saved_mode = model.training
         model.eval()
@@ -244,6 +242,7 @@ class Monitor(object):
         self.update_accuracy(accuracy=accuracy_orig, mode='batch')
         self.update_accuracy(accuracy=accuracy_adv, mode='adversarial')
         images_stacked = []
+        images_orig, images_adv = images_orig.cpu(), images_adv.cpu()
         for images in (images_orig, images_adv):
             n_show = min(n_show, len(images))
             images = images[: n_show]

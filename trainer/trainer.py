@@ -73,6 +73,8 @@ class Trainer(ABC):
         Train mask to see what part of the image is crucial from the network perspective.
         """
         images, labels = next(iter(self.train_loader))
+        if torch.cuda.is_available():
+            images = images.cuda()
         with torch.no_grad():
             proba = self.accuracy_measure.predict_proba(self.model(images))
         proba_max, _ = proba.max(dim=1)
@@ -87,6 +89,7 @@ class Trainer(ABC):
             outputs_perturbed = self.model(image_perturbed.unsqueeze(dim=0))
         proba_perturbed = self.accuracy_measure.predict_proba(outputs_perturbed)
         proba_perturbed = proba_perturbed[0, label]
+        image, mask, image_perturbed = image.cpu(), mask.cpu(), image_perturbed.cpu()
         image = self.monitor.normalize_inverse(image)
         image_perturbed = self.monitor.normalize_inverse(image_perturbed)
         image_masked = mask * image
@@ -107,6 +110,9 @@ class Trainer(ABC):
         :return adversarial examples
         """
         images, labels = next(iter(self.train_loader))
+        if torch.cuda.is_available():
+            images = images.cuda()
+            labels = labels.cuda()
         images_orig = images.clone()
         images.requires_grad_(True)
         for i in range(n_iter):

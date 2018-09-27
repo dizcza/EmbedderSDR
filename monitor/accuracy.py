@@ -79,17 +79,12 @@ class Accuracy(ABC):
 
 class AccuracyArgmax(Accuracy):
 
-    def __init__(self):
-        super().__init__()
-        self.softmax = nn.Softmax(dim=1)
-
     def predict(self, outputs_test):
         labels_predicted = outputs_test.argmax(dim=-1)
         return labels_predicted
 
     def predict_proba(self, outputs_test):
-        outputs_test = outputs_test.cpu()
-        return self.softmax(outputs_test)
+        return outputs_test.softmax(dim=1)
 
 
 class AccuracyEmbedding(Accuracy):
@@ -102,16 +97,16 @@ class AccuracyEmbedding(Accuracy):
 
     def distances(self, outputs_test):
         assert len(self.centroids) > 0, "Save train embeddings first"
-        outputs_test = outputs_test.cpu()
-        distances = (outputs_test.unsqueeze(dim=1) - self.centroids).abs_().sum(dim=-1)
+        centroids = torch.as_tensor(self.centroids, device=outputs_test.device)
+        distances = (outputs_test.unsqueeze(dim=1) - centroids).abs_().sum(dim=-1)
         return distances
 
     def save(self, outputs_train, labels_train):
-        outputs_train = outputs_train.cpu()
+        outputs_train = outputs_train.detach()
         self.centroids = []
         for label in labels_train.unique(sorted=True):
             self.centroids.append(outputs_train[labels_train == label].mean(dim=0))
-        self.centroids = torch.stack(self.centroids, dim=0)
+        self.centroids = torch.stack(self.centroids, dim=0).cpu()
 
     def predict(self, outputs_test):
         labels_predicted = self.distances(outputs_test).argmin(dim=1)

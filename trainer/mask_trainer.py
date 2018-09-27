@@ -76,6 +76,6 @@ class MaskTrainer:
             optimizer.step()
             mask_upsampled.data.clamp_(0, 1)
             loss_trace.append(loss.item())
-        mask_upsampled = mask_upsampled[0].detach().cpu()
-        image_perturbed = image_perturbed[0].detach().cpu()
+        mask_upsampled = mask_upsampled[0].detach()
+        image_perturbed = image_perturbed[0].detach()
         return mask_upsampled, loss_trace, image_perturbed
