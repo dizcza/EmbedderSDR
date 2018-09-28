@@ -1,3 +1,5 @@
+import copy
+
 import torch.nn as nn
 
 from model.kwta import KWinnersTakeAll
@@ -37,5 +39,5 @@ def replace_relu(model: nn.Module, new_relu: KWinnersTakeAll, drop_layers=()):
         if child_new is not child:
             setattr(model, name, child_new)
     if isinstance(model, (nn.ReLU, nn.RReLU, nn.ReLU6, nn.LeakyReLU, nn.PReLU)):
-        model = new_relu
+        model = copy.deepcopy(new_relu)
     return model
