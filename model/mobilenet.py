@@ -5,7 +5,6 @@ for more details.
 '''
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 class Block(nn.Module):
@@ -16,10 +15,11 @@ class Block(nn.Module):
         self.bn1 = nn.BatchNorm2d(in_planes)
         self.conv2 = nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn2 = nn.BatchNorm2d(out_planes)
+        self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = F.relu(self.bn2(self.conv2(out)))
+        out = self.relu(self.bn1(self.conv1(x)))
+        out = self.relu(self.bn2(self.conv2(out)))
         return out
 
 
@@ -32,6 +32,8 @@ class MobileNet(nn.Module):
         self.conv1 = nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(32)
         self.layers = self._make_layers(in_planes=32)
+        self.relu = nn.ReLU(inplace=True)
+        self.avg_pool2d = nn.AvgPool2d(kernel_size=2)
         self.last_layer = last_layer
 
     def _make_layers(self, in_planes):
@@ -44,9 +46,9 @@ class MobileNet(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.relu(self.bn1(self.conv1(x)))
         out = self.layers(out)
-        out = F.avg_pool2d(out, 2)
+        out = self.avg_pool2d(out)
         out = out.view(out.size(0), -1)
         if self.last_layer is not None:
             out = self.last_layer(out)

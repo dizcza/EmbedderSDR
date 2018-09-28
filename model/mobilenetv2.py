@@ -5,7 +5,6 @@ Mobile Networks for Classification, Detection and Segmentation" for more details
 '''
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
 
 class Block(nn.Module):
@@ -21,6 +20,7 @@ class Block(nn.Module):
         self.bn2 = nn.BatchNorm2d(planes)
         self.conv3 = nn.Conv2d(planes, out_planes, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn3 = nn.BatchNorm2d(out_planes)
+        self.relu = nn.ReLU(inplace=True)
 
         self.shortcut = nn.Sequential()
         if stride == 1 and in_planes != out_planes:
@@ -30,8 +30,8 @@ class Block(nn.Module):
             )
 
     def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
-        out = F.relu(self.bn2(self.conv2(out)))
+        out = self.relu(self.bn1(self.conv1(x)))
+        out = self.relu(self.bn2(self.conv2(out)))
         out = self.bn3(self.conv3(out))
         out = out + self.shortcut(x) if self.stride==1 else out
         return out
@@ -55,6 +55,8 @@ class MobileNetV2(nn.Module):
         self.layers = self._make_layers(in_planes=32)
         self.conv2 = nn.Conv2d(320, 1280, kernel_size=1, stride=1, padding=0, bias=False)
         self.bn2 = nn.BatchNorm2d(1280)
+        self.relu = nn.ReLU(inplace=True)
+        self.avg_pool2d = nn.AvgPool2d(kernel_size=4)
         self.last_layer = last_layer
 
     def _make_layers(self, in_planes):
@@ -67,11 +69,11 @@ class MobileNetV2(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
-        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.relu(self.bn1(self.conv1(x)))
         out = self.layers(out)
-        out = F.relu(self.bn2(self.conv2(out)))
+        out = self.relu(self.bn2(self.conv2(out)))
         # NOTE: change pooling kernel_size 7 -> 4 for CIFAR10
-        out = F.avg_pool2d(out, 4)
+        out = self.avg_pool2d(out)
         out = out.view(out.size(0), -1)
         if self.last_layer is not None:
             out = self.last_layer(out)

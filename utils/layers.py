@@ -3,6 +3,11 @@ import torch.nn as nn
 from model.kwta import KWinnersTakeAll
 
 
+class Identity(nn.Module):
+    def forward(self, x):
+        return x
+
+
 def find_layers(model: nn.Module, layer_class):
     for name, layer in find_named_layers(model, layer_class=layer_class):
         yield layer
@@ -26,7 +31,7 @@ def replace_relu(model: nn.Module, new_relu: KWinnersTakeAll, drop_layers=()):
         return model
     for name, child in list(model.named_children()):
         if isinstance(child, drop_layers):
-            delattr(model, name)
+            setattr(model, name, Identity())
             continue
         child_new = replace_relu(model=child, new_relu=new_relu, drop_layers=drop_layers)
         if child_new is not child:
