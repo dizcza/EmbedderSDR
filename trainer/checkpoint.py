@@ -5,7 +5,7 @@ import time
 import torch
 import torch.nn as nn
 
-from constants import CHECKPOINTS_DIR
+from utils.constants import CHECKPOINTS_DIR
 
 
 class Checkpoint:

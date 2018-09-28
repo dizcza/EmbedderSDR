@@ -6,7 +6,7 @@ from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
 
 from model.kwta import KWinnersTakeAllSoft, KWinnersTakeAll, SynapticScaling
 from trainer.gradient import TrainerGrad
-from utils import find_layers, find_named_layers
+from utils.common import find_layers, find_named_layers
 
 
 class KWTAScheduler:

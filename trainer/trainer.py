@@ -14,7 +14,7 @@ from monitor.batch_timer import timer
 from monitor.monitor import Monitor
 from trainer.checkpoint import Checkpoint
 from trainer.mask_trainer import MaskTrainer
-from utils import get_data_loader, find_named_layers, AdversarialExamples
+from utils.common import get_data_loader, find_named_layers, AdversarialExamples
 
 
 class Trainer(ABC):

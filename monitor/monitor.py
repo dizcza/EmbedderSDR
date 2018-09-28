@@ -14,7 +14,8 @@ from monitor.batch_timer import timer, ScheduleStep
 from monitor.mutual_info import MutualInfoKMeans
 from monitor.var_online import VarianceOnline
 from monitor.viz import VisdomMighty
-from utils import factors_root, AdversarialExamples, get_normalize_inverse
+from utils.normalize import get_normalize_inverse
+from utils.common import factors_root, AdversarialExamples
 
 
 class ParamRecord(object):

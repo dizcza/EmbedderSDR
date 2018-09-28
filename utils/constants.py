@@ -1,5 +1,4 @@
 from pathlib import Path
-import math
 import os
 
 ROOT_DIR = Path(__file__).parent

@@ -3,7 +3,7 @@ import torch.utils.data
 from torchvision import transforms, datasets
 from tqdm import tqdm
 
-from constants import DATA_DIR
+from utils.constants import DATA_DIR
 from monitor.viz import VisdomMighty
 
 

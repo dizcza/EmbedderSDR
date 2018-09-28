@@ -3,7 +3,7 @@ import math
 import torch
 import torch.nn as nn
 
-from constants import SPARSITY
+from utils.constants import SPARSITY
 
 
 def get_kwta_threshold(tensor: torch.FloatTensor, k_active):
