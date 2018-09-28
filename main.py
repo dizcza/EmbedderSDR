@@ -5,6 +5,7 @@ import torch.nn as nn
 from trainer.kwta import TrainerGradKWTA, KWTAScheduler
 from trainer.gradient import TrainerGrad
 from utils.common import set_seed
+from utils.layers import replace_relu
 from loss import ContrastiveLossBatch
 from model import *
 
@@ -27,6 +28,7 @@ def train_kwta(n_epoch=500, dataset_name="CIFAR10_56"):
     kwta = KWinnersTakeAllSoft(sparsity=0.3, connect_lateral=False)
     # kwta = SynapticScaling(kwta, synaptic_scale=3)
     model = EmbedderSDR(last_layer=kwta, dataset_name=dataset_name)
+    model = replace_relu(model, new_relu=kwta)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=15,
                                                            threshold=1e-3, min_lr=1e-4)
@@ -40,5 +42,5 @@ def train_kwta(n_epoch=500, dataset_name="CIFAR10_56"):
 
 if __name__ == '__main__':
     set_seed(26)
-    train_grad()
+    train_kwta()
 

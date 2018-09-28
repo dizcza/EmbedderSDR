@@ -25,21 +25,20 @@ def kwta_inverse(embedding_dim=10000, sparsity=0.05, dataset="MNIST", debug=Fals
     normalize_inverse = get_normalize_inverse(loader.dataset.transform)
     images, labels = next(iter(loader))
     batch_size, channels, height, width = images.shape
-    k_active = int(embedding_dim * sparsity)
     kwta_embeddings = []
     before_inverse = []
     restored = []
     for channel in range(channels):
         images_channel = images[:, channel, :, :]
         images_binary = (images_channel > 0).type(torch.float32)
-        k_active_input = int(images_binary.sum(dim=(1, 2)).mean())
-        print(f"Sparsity image raw channel={channel}: {k_active_input / (height * width):.3f}")
+        sparsity_channel = images_binary.mean()
+        print(f"Sparsity image raw channel={channel}: {sparsity_channel:.3f}")
         images_flatten = images_channel.view(batch_size, -1)
         weights = torch.randn(images_flatten.shape[1], embedding_dim)
         embeddings = images_flatten @ weights
-        kwta_embeddings_channel = _KWinnersTakeAllFunction.apply(embeddings.clone(), k_active)
+        kwta_embeddings_channel = _KWinnersTakeAllFunction.apply(embeddings.clone(), sparsity)
         before_inverse_channel = kwta_embeddings_channel @ weights.transpose(0, 1)
-        restored_channel = _KWinnersTakeAllFunction.apply(before_inverse_channel.clone(), k_active_input)
+        restored_channel = _KWinnersTakeAllFunction.apply(before_inverse_channel.clone(), sparsity_channel)
         kwta_embeddings.append(kwta_embeddings_channel)
         before_inverse.append(before_inverse_channel)
         restored.append(restored_channel)

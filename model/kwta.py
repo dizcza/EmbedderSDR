@@ -6,18 +6,30 @@ import torch.nn as nn
 from utils.constants import SPARSITY
 
 
-def get_kwta_threshold(tensor: torch.FloatTensor, k_active):
-    x_sorted, argsort = tensor.sort(dim=1, descending=True)
-    threshold = x_sorted[:, [k_active-1, k_active]].mean(dim=1)
-    threshold.unsqueeze_(dim=1)
+def get_kwta_threshold(tensor: torch.FloatTensor, sparsity: float):
+    if tensor.ndimension() == 2:
+        # linear
+        k_active = math.ceil(sparsity * tensor.shape[1])
+        x_sorted, argsort = tensor.sort(dim=1, descending=True)
+        threshold = x_sorted[:, [k_active-1, k_active]].mean(dim=1)
+        threshold.unsqueeze_(dim=1)
+    else:
+        # conv
+        tensor = tensor.view(tensor.shape[0], tensor.shape[1], -1)
+        threshold = []
+        for channel in range(tensor.shape[1]):
+            threshold_channel = get_kwta_threshold(tensor[:, channel, :], sparsity)
+            threshold.append(threshold_channel)
+        threshold = torch.cat(threshold, dim=1)
+        threshold.unsqueeze_(dim=2).unsqueeze_(dim=3)
     return threshold
 
 
 class _KWinnersTakeAllFunction(torch.autograd.Function):
 
     @staticmethod
-    def forward(ctx, tensor, k_active: int):
-        threshold = get_kwta_threshold(tensor, k_active=k_active)
+    def forward(ctx, tensor, sparsity: float):
+        threshold = get_kwta_threshold(tensor, sparsity)
         mask_active = tensor > threshold
         return mask_active.type(torch.float32)
 
@@ -39,27 +51,25 @@ class KWinnersTakeAll(nn.Module):
         self.connect_lateral = connect_lateral
         self.weight_lateral = None
 
-    def forward_kwta(self, x, k_active):
-        x = _KWinnersTakeAllFunction.apply(x, k_active)
+    def forward_kwta(self, x, sparsity):
+        x = _KWinnersTakeAllFunction.apply(x, sparsity)
         return x
 
     def forward_lateral(self, x_input):
         batch_size, embedding_size = x_input.shape
-        k_active = math.ceil(self.sparsity * embedding_size)
-        if self.training:
-            k_active_forward = k_active
-        else:
-            k_active_forward = k_active // 2
+        sparsity_forward = self.sparsity
+        if not self.training:
+            sparsity_forward /= 2
         if self.weight_lateral is None:
             self.weight_lateral = torch.zeros(embedding_size, embedding_size, device=x_input.device)
-            k_active_forward = k_active
-        x_output = self.forward_kwta(x_input, k_active_forward)
+            sparsity_forward = self.sparsity
+        x_output = self.forward_kwta(x_input, sparsity_forward)
         mask_active = x_output > 0.5
         if self.training:
             for mask_active_sample in mask_active:
                 self.weight_lateral[mask_active_sample.nonzero(), mask_active_sample] += 1
         else:
-            k_active_lateral = k_active - k_active_forward
+            k_active_lateral = math.ceil((self.sparsity - sparsity_forward) * embedding_size)
             x_lateral = x_output @ self.weight_lateral
             x_lateral[mask_active] = 0  # don't select already active neurons
             _, argsort = x_lateral.sort(dim=1, descending=True)
@@ -68,12 +78,11 @@ class KWinnersTakeAll(nn.Module):
         return x_output
 
     def forward(self, x):
-        if self.connect_lateral:
+        if self.connect_lateral and x.ndimension() == 2:
+            # auto-association is only for fully connected
             return self.forward_lateral(x)
         else:
-            batch_size, embedding_size = x.shape
-            k_active = math.ceil(self.sparsity * embedding_size)
-            return self.forward_kwta(x, k_active)
+            return self.forward_kwta(x, self.sparsity)
 
     def clear_lateral(self):
         self.weight_lateral = None
@@ -94,13 +103,13 @@ class KWinnersTakeAllSoft(KWinnersTakeAll):
         super().__init__(sparsity=sparsity, connect_lateral=connect_lateral)
         self.hardness = hardness
 
-    def forward_kwta(self, x, k_active):
+    def forward_kwta(self, x, sparsity):
         if self.training:
-            threshold = get_kwta_threshold(x, k_active=k_active)
+            threshold = get_kwta_threshold(x, sparsity)
             x_scaled = self.hardness * (x - threshold)
             return x_scaled.sigmoid()
         else:
-            return super().forward_kwta(x, k_active)
+            return super().forward_kwta(x, sparsity)
 
     def extra_repr(self):
         old_repr = super().extra_repr()

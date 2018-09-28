@@ -5,7 +5,6 @@ from functools import lru_cache, wraps
 from pathlib import Path
 
 import torch
-import torch.nn as nn
 import torch.utils.data
 from torchvision import transforms, datasets
 
@@ -91,15 +90,3 @@ def load_model_state(dataset_name: str, model_name: str):
     if not model_path.exists():
         return None
     return torch.load(model_path)
-
-
-def find_layers(model: nn.Module, layer_class):
-    for name, layer in find_named_layers(model, layer_class=layer_class):
-        yield layer
-
-
-def find_named_layers(model: nn.Module, layer_class, name_prefix=''):
-    for name, layer in model.named_children():
-        yield from find_named_layers(layer, layer_class, name_prefix=f"{name_prefix}.{name}")
-    if isinstance(model, layer_class):
-        yield name_prefix.lstrip('.'), model
