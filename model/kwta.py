@@ -7,21 +7,12 @@ from utils.constants import SPARSITY
 
 
 def get_kwta_threshold(tensor: torch.FloatTensor, sparsity: float):
-    if tensor.ndimension() == 2:
-        # linear
-        k_active = math.ceil(sparsity * tensor.shape[1])
-        x_sorted, argsort = tensor.sort(dim=1, descending=True)
-        threshold = x_sorted[:, [k_active-1, k_active]].mean(dim=1)
-        threshold.unsqueeze_(dim=1)
-    else:
-        # conv
-        tensor = tensor.view(tensor.shape[0], tensor.shape[1], -1)
-        threshold = []
-        for channel in range(tensor.shape[1]):
-            threshold_channel = get_kwta_threshold(tensor[:, channel, :], sparsity)
-            threshold.append(threshold_channel)
-        threshold = torch.cat(threshold, dim=1)
-        threshold.unsqueeze_(dim=2).unsqueeze_(dim=3)
+    unsqueeze_dim = [1] * (tensor.ndimension() - 1)
+    tensor = tensor.view(tensor.shape[0], -1)
+    k_active = math.ceil(sparsity * tensor.shape[1])
+    x_sorted, argsort = tensor.sort(dim=1, descending=True)
+    threshold = x_sorted[:, [k_active-1, k_active]].mean(dim=1)
+    threshold = threshold.view(-1, *unsqueeze_dim)
     return threshold
 
 
