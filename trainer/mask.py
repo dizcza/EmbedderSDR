@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional
+from tqdm import trange
 
 from monitor.accuracy import Accuracy
 
@@ -37,22 +38,28 @@ class MaskTrainer:
     https://arxiv.org/pdf/1704.03296.pdf
     """
 
-    tv_beta = 3
+    tv_beta = 1
     learning_rate = 0.1
-    max_iterations = 20
+    max_iterations = 100
     l1_coeff = 0.01
     tv_coeff = 0.2
     mask_size = 10
 
-    def __init__(self, accuracy_measure: Accuracy, channels: int):
-        self.gaussian_filter = create_gaussian_filter(size=5, sigma=3, channels=channels)
-        self.padding = nn.modules.ReflectionPad2d(padding=(self.gaussian_filter.kernel_size[0] - 1) // 2)
+    def __init__(self, accuracy_measure: Accuracy, image_shape: torch.Size, show_progress=False):
+        kernel_size = 2 * int(image_shape[1] ** 0.5 // 2) + 1
+        self.gaussian_filter = create_gaussian_filter(size=kernel_size, sigma=kernel_size / 2, channels=image_shape[0])
+        self.padding = nn.modules.ReflectionPad2d(padding=kernel_size // 2)
         self.accuracy_measure = accuracy_measure
+        self.show_progress = show_progress
         if torch.cuda.is_available():
             self.gaussian_filter.cuda()
             self.padding.cuda()
 
     def train_mask(self, model: nn.Module, image, label_true):
+        requires_grad_saved = {}
+        for name, param in model.named_parameters():
+            requires_grad_saved[name] = param.requires_grad
+            param.requires_grad_(False)
         channels, height, width = image.shape
         image = image.unsqueeze(dim=0)
         image_blurred = self.gaussian_filter(self.padding(image))
@@ -61,7 +68,7 @@ class MaskTrainer:
         loss_trace = []
         mask_upsampled = None
         image_perturbed = None
-        for i in range(self.max_iterations):
+        for i in trange(self.max_iterations, desc="Training mask", disable=not self.show_progress):
             mask_upsampled = mask.expand(1, channels, *mask.shape)
             mask_upsampled = nn.functional.interpolate(mask_upsampled, size=(height, width), mode='bilinear',
                                                        align_corners=True)
@@ -76,6 +83,11 @@ class MaskTrainer:
             optimizer.step()
             mask_upsampled.data.clamp_(0, 1)
             loss_trace.append(loss.item())
+        for name, param in model.named_parameters():
+            param.requires_grad_(requires_grad_saved[name])
         mask_upsampled = mask_upsampled[0].detach()
         image_perturbed = image_perturbed[0].detach()
         return mask_upsampled, loss_trace, image_perturbed
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}(mask_size={self.mask_size}, gaussian_filter={self.gaussian_filter})"

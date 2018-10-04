@@ -16,6 +16,7 @@ from monitor.var_online import VarianceOnline
 from monitor.viz import VisdomMighty
 from utils.normalize import get_normalize_inverse
 from utils.common import factors_root, AdversarialExamples
+from trainer.mask import MaskTrainer
 
 
 class ParamRecord(object):
@@ -122,7 +123,9 @@ class Monitor(object):
         self.timer = timer
         self.viz = VisdomMighty(env=env_name)
         self.test_loader = test_loader
-        self.normalize_inverse = get_normalize_inverse(self.test_loader.dataset.transform)
+        self.normalize_inverse = None
+        if self.test_loader is not None:
+            self.normalize_inverse = get_normalize_inverse(self.test_loader.dataset.transform)
         self.accuracy_measure = accuracy_measure
         self.param_records = ParamsDict()
         self.mutual_info = MutualInfoKMeans(estimate_size=int(1e3), compression_range=(0.5, 0.999))
@@ -258,6 +261,29 @@ class Monitor(object):
         images_stacked = torch.cat(images_stacked, dim=1)
         images_stacked.clamp_(0, 1)
         self.viz.image(images_stacked, win='Adversarial examples', opts=dict(title='Adversarial examples'))
+
+    def plot_mask(self, model: nn.Module, mask_trainer: MaskTrainer, image, label):
+        def forward_probability(image_example):
+            with torch.no_grad():
+                outputs = model(image_example.unsqueeze(dim=0))
+            proba = self.accuracy_measure.predict_proba(outputs)
+            return proba[0, label]
+        mask, loss_trace, image_perturbed = mask_trainer.train_mask(model=model, image=image, label_true=label)
+        proba_original = forward_probability(image)
+        proba_perturbed = forward_probability(image_perturbed)
+        image, mask, image_perturbed = image.cpu(), mask.cpu(), image_perturbed.cpu()
+        image = self.normalize_inverse(image)
+        image_perturbed = self.normalize_inverse(image_perturbed)
+        image_masked = mask * image
+        images_stacked = torch.stack([image, mask, image_masked, image_perturbed], dim=0)
+        images_stacked.clamp_(0, 1)
+        self.viz.images(images_stacked, nrow=len(images_stacked), win='masked images', opts=dict(
+            title=f"Masked image decreases probability {proba_original:.4f} -> {proba_perturbed:.4f}"
+        ))
+        self.viz.line(Y=loss_trace, X=np.arange(1, len(loss_trace)+1), win='mask loss', opts=dict(
+            xlabel='Iteration',
+            title='Mask loss'
+        ))
 
     def epoch_finished(self, model: nn.Module, outputs_full, labels_full):
         self.update_accuracy_epoch(model, outputs_train=outputs_full, labels_train=labels_full)

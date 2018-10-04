@@ -13,7 +13,7 @@ from monitor.accuracy import get_outputs, AccuracyEmbedding, AccuracyArgmax
 from monitor.batch_timer import timer
 from monitor.monitor import Monitor
 from trainer.checkpoint import Checkpoint
-from trainer.mask_trainer import MaskTrainer
+from trainer.mask import MaskTrainer
 from utils.common import get_data_loader, AdversarialExamples
 from utils.layers import find_named_layers
 
@@ -42,7 +42,7 @@ class Trainer(ABC):
             self.monitor.register_layer(layer, prefix=name)
         self.checkpoint = Checkpoint(model=self.model, patience=patience)
         images, labels = next(iter(self.train_loader))
-        self.mask_trainer = MaskTrainer(accuracy_measure=self.accuracy_measure, channels=images.shape[1])
+        self.mask_trainer = MaskTrainer(accuracy_measure=self.accuracy_measure, image_shape=images[0].shape)
 
     @property
     def env_name(self) -> str:
@@ -55,6 +55,7 @@ class Trainer(ABC):
 
     def log_trainer(self):
         self.monitor.log(f"Criterion: {self.criterion}")
+        self.monitor.log(repr(self.mask_trainer))
 
     def reset_checkpoint(self):
         self.checkpoint.reset(model=self.model)
@@ -82,27 +83,7 @@ class Trainer(ABC):
         sample_max_proba = proba_max.argmax()
         image = images[sample_max_proba]
         label = labels[sample_max_proba]
-        proba_original = proba[sample_max_proba, label]
-
-        mask, loss_trace, image_perturbed = self.mask_trainer.train_mask(model=self.model, image=image,
-                                                                         label_true=label)
-        with torch.no_grad():
-            outputs_perturbed = self.model(image_perturbed.unsqueeze(dim=0))
-        proba_perturbed = self.accuracy_measure.predict_proba(outputs_perturbed)
-        proba_perturbed = proba_perturbed[0, label]
-        image, mask, image_perturbed = image.cpu(), mask.cpu(), image_perturbed.cpu()
-        image = self.monitor.normalize_inverse(image)
-        image_perturbed = self.monitor.normalize_inverse(image_perturbed)
-        image_masked = mask * image
-        images_stacked = torch.stack([image, mask, image_masked, image_perturbed], dim=0)
-        images_stacked.clamp_(0, 1)
-        self.monitor.viz.images(images_stacked, nrow=len(images_stacked), win='masked images', opts=dict(
-            title=f"Masked image decreases probability {proba_original:.4f} -> {proba_perturbed:.4f}"
-        ))
-        self.monitor.viz.line(Y=loss_trace, win='mask loss', opts=dict(
-            xlabel='Iteration',
-            title='Mask loss'
-        ))
+        self.monitor.plot_mask(self.model, mask_trainer=self.mask_trainer, image=image, label=label)
 
     def get_adversarial_examples(self, noise_ampl=100, n_iter=10):
         """
