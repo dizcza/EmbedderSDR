@@ -28,7 +28,8 @@ class Trainer(ABC):
         self.criterion = criterion
         self.dataset_name = dataset_name
         self.train_loader = get_data_loader(dataset_name, train=True)
-        timer.init(batches_in_epoch=len(self.train_loader))
+        self.timer = timer
+        self.timer.init(batches_in_epoch=len(self.train_loader))
         env_name = self.env_name
         if env_suffix:
             env_name += f" {env_suffix}"
@@ -113,6 +114,28 @@ class Trainer(ABC):
         mode_saved.restore(self.model)
         return AdversarialExamples(original=images_orig, adversarial=images, labels=labels)
 
+    def train_epoch(self, epoch):
+        """
+        :param epoch: epoch id
+        :return: last batch loss
+        """
+        loss = None
+        use_cuda = torch.cuda.is_available()
+        for images, labels in tqdm(self.train_loader,
+                                   desc="Epoch {:d}".format(epoch),
+                                   leave=False):
+            if use_cuda:
+                images = images.cuda()
+                labels = labels.cuda()
+
+            outputs, loss = self.train_batch(images, labels)
+            for name, param in self.model.named_parameters():
+                if torch.isnan(param).any():
+                    warnings.warn(f"NaN parameters in '{name}'")
+            self.monitor.batch_finished(self.model)
+
+        return loss
+
     def train(self, n_epoch=10, epoch_update_step=1, watch_parameters=False,
               mutual_info_layers=1, adversarial=False, mask_explain=False):
         """
@@ -147,26 +170,9 @@ class Trainer(ABC):
         self.monitor.set_watch_mode(watch_parameters)
 
         for epoch in range(n_epoch):
-            labels, outputs, loss = None, None, None
-            for images, labels in tqdm(self.train_loader,
-                                       desc="Epoch {:d}/{:d}".format(epoch, n_epoch),
-                                       leave=False):
-                if use_cuda:
-                    images = images.cuda()
-                    labels = labels.cuda()
-
-                outputs, loss = self.train_batch(images, labels)
-                for name, param in self.model.named_parameters():
-                    if torch.isnan(param).any():
-                        warnings.warn(f"NaN parameters in '{name}'")
-                self.monitor.batch_finished(self.model)
-
-                # uncomment to see more detailed progress - at each batch instead of epoch
-                # self.monitor.activations_heatmap(outputs, labels)
-                # self.monitor.update_loss(loss=loss.item(), mode='batch')
-
+            loss_batch = self.train_epoch(epoch=epoch)
             if epoch % epoch_update_step == 0:
-                self.monitor.update_loss(loss=loss, mode='batch')
+                self.monitor.update_loss(loss=loss_batch, mode='batch')
                 outputs_full, labels_full = get_outputs_eval(self.model)
                 self.accuracy_measure.save(outputs_train=outputs_full, labels_train=labels_full)
                 self.monitor.epoch_finished(self.model, outputs_full, labels_full)
