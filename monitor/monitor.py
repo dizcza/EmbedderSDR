@@ -304,7 +304,8 @@ class Monitor(object):
     def register_layer(self, layer: nn.Module, prefix: str):
         self.mutual_info.register(layer, name=prefix)
         for name, param in layer.named_parameters(prefix=prefix):
-            self.param_records[name] = ParamRecord(param)
+            if param.requires_grad:
+                self.param_records[name] = ParamRecord(param)
 
     def update_sparsity(self, outputs):
         sparsity = outputs.norm(p=1, dim=1).mean() / outputs.shape[1]
