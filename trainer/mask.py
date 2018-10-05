@@ -56,10 +56,6 @@ class MaskTrainer:
             self.padding.cuda()
 
     def train_mask(self, model: nn.Module, image, label_true):
-        requires_grad_saved = {}
-        for name, param in model.named_parameters():
-            requires_grad_saved[name] = param.requires_grad
-            param.requires_grad_(False)
         channels, height, width = image.shape
         image = image.unsqueeze(dim=0)
         image_blurred = self.gaussian_filter(self.padding(image))
@@ -83,8 +79,6 @@ class MaskTrainer:
             optimizer.step()
             mask_upsampled.data.clamp_(0, 1)
             loss_trace.append(loss.item())
-        for name, param in model.named_parameters():
-            param.requires_grad_(requires_grad_saved[name])
         mask_upsampled = mask_upsampled[0].detach()
         image_perturbed = image_perturbed[0].detach()
         return mask_upsampled, loss_trace, image_perturbed

@@ -16,6 +16,7 @@ from trainer.checkpoint import Checkpoint
 from trainer.mask import MaskTrainer
 from utils.common import get_data_loader, AdversarialExamples
 from utils.layers import find_named_layers
+from utils.prepare import prepare_eval
 
 
 class Trainer(ABC):
@@ -65,7 +66,7 @@ class Trainer(ABC):
         raise NotImplementedError()
 
     def _epoch_finished(self, epoch, outputs, labels):
-        loss = self.criterion(outputs, labels).item()
+        loss = self.criterion(outputs, labels)
         self.monitor.update_loss(loss, mode='full train')
         self.checkpoint.step(model=self.model, loss=loss)
         return loss
@@ -75,6 +76,7 @@ class Trainer(ABC):
         Train mask to see what part of the image is crucial from the network perspective.
         """
         images, labels = next(iter(self.train_loader))
+        mode_saved = prepare_eval(self.model)
         if torch.cuda.is_available():
             images = images.cuda()
         with torch.no_grad():
@@ -84,6 +86,7 @@ class Trainer(ABC):
         image = images[sample_max_proba]
         label = labels[sample_max_proba]
         self.monitor.plot_mask(self.model, mask_trainer=self.mask_trainer, image=image, label=label)
+        mode_saved.restore(self.model)
 
     def get_adversarial_examples(self, noise_ampl=100, n_iter=10):
         """
@@ -97,6 +100,7 @@ class Trainer(ABC):
             labels = labels.cuda()
         images_orig = images.clone()
         images.requires_grad_(True)
+        mode_saved = prepare_eval(self.model)
         for i in range(n_iter):
             images.grad = None
             outputs = self.model(images)
@@ -106,6 +110,7 @@ class Trainer(ABC):
                 adv_noise = noise_ampl * images.grad
                 images += adv_noise
         images.requires_grad_(False)
+        mode_saved.restore(self.model)
         return AdversarialExamples(original=images_orig, adversarial=images, labels=labels)
 
     def train(self, n_epoch=10, epoch_update_step=1, watch_parameters=False,
@@ -161,7 +166,7 @@ class Trainer(ABC):
                 # self.monitor.update_loss(loss=loss.item(), mode='batch')
 
             if epoch % epoch_update_step == 0:
-                self.monitor.update_loss(loss=loss.item(), mode='batch')
+                self.monitor.update_loss(loss=loss, mode='batch')
                 outputs_full, labels_full = get_outputs_eval(self.model)
                 self.accuracy_measure.save(outputs_train=outputs_full, labels_train=labels_full)
                 self.monitor.epoch_finished(self.model, outputs_full, labels_full)

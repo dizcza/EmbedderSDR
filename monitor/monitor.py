@@ -1,7 +1,7 @@
 import os
 import subprocess
 from collections import UserDict
-from typing import Callable
+from typing import Callable, Optional
 
 import numpy as np
 import torch
@@ -16,7 +16,6 @@ from monitor.var_online import VarianceOnline
 from monitor.viz import VisdomMighty
 from utils.normalize import get_normalize_inverse
 from utils.common import factors_root, AdversarialExamples
-from trainer.mask import MaskTrainer
 
 
 class ParamRecord(object):
@@ -157,8 +156,10 @@ class Monitor(object):
             self.mutual_info.force_update(model)
             self.mutual_info.plot(self.viz)
 
-    def update_loss(self, loss: float, mode='batch'):
-        self.viz.line_update(loss, opts=dict(
+    def update_loss(self, loss: Optional[torch.Tensor], mode='batch'):
+        if loss is None:
+            return
+        self.viz.line_update(loss.item(), opts=dict(
             xlabel='Epoch',
             ylabel='Loss',
             title=f'Loss'
@@ -262,7 +263,7 @@ class Monitor(object):
         images_stacked.clamp_(0, 1)
         self.viz.image(images_stacked, win='Adversarial examples', opts=dict(title='Adversarial examples'))
 
-    def plot_mask(self, model: nn.Module, mask_trainer: MaskTrainer, image, label):
+    def plot_mask(self, model: nn.Module, mask_trainer, image, label):
         def forward_probability(image_example):
             with torch.no_grad():
                 outputs = model(image_example.unsqueeze(dim=0))

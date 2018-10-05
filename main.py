@@ -10,9 +10,7 @@ from loss import ContrastiveLossBatch
 from model import *
 from monitor.accuracy import AccuracyArgmax
 from monitor.monitor import Monitor
-from trainer.gradient import TrainerGrad
-from trainer.kwta import TrainerGradKWTA, KWTAScheduler
-from trainer.mask import MaskTrainer
+from trainer import *
 from utils.common import set_seed
 from utils.constants import IMAGES_DIR
 from utils.normalize import NormalizeInverse
@@ -72,11 +70,24 @@ def train_kwta(n_epoch=500, dataset_name="CIFAR10_56"):
                                    gamma_hardness=2, max_hardness=10)
     trainer = TrainerGradKWTA(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
                               scheduler=scheduler, kwta_scheduler=kwta_scheduler, env_suffix='')
-    trainer.train(n_epoch=n_epoch, epoch_update_step=1, watch_parameters=True, mutual_info_layers=0, mask_explain=True)
+    trainer.train(n_epoch=n_epoch, epoch_update_step=1, watch_parameters=True, mutual_info_layers=1, mask_explain=True)
+
+
+def test(n_epoch=500, dataset_name="CIFAR10_56"):
+    kwta = KWinnersTakeAllSoft(sparsity=0.3, connect_lateral=False)
+    model = EmbedderSDR(last_layer=kwta, dataset_name=dataset_name)
+    for param in model.parameters():
+        param.requires_grad_(False)
+    criterion = ContrastiveLossBatch(metric='cosine')
+    trainer = Test(model=model, criterion=criterion, dataset_name=dataset_name)
+    trainer.train(n_epoch=n_epoch, epoch_update_step=1, watch_parameters=True, mutual_info_layers=1, adversarial=True,
+                  mask_explain=True)
 
 
 if __name__ == '__main__':
     set_seed(26)
     torch.backends.cudnn.benchmark = True
     # train_kwta()
-    train_mask()
+    # train_mask()
+    # train_grad()
+    test()
