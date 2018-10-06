@@ -214,13 +214,10 @@ class Monitor(object):
         self.update_accuracy(accuracy=calc_accuracy(labels_true, labels_predicted), mode=mode)
         title = f"Confusion matrix '{mode}'"
         confusion = confusion_matrix(labels_true, labels_predicted)
-        label_vals = list(range(confusion.shape[0]))
         self.viz.heatmap(confusion, win=title, opts=dict(
             title=title,
             xlabel='Predicted label',
             ylabel='True label',
-            ytickvals=label_vals,
-            xtickvals=label_vals,
         ))
 
     def update_accuracy_epoch(self, model: nn.Module, outputs_train, labels_train):

@@ -134,6 +134,10 @@ class Trainer(ABC):
                     warnings.warn(f"NaN parameters in '{name}'")
             self.monitor.batch_finished(self.model)
 
+            # uncomment to see more detailed progress - at each batch instead of epoch
+            # self.monitor.activations_heatmap(outputs, labels)
+            # self.monitor.update_loss(loss=loss.item(), mode='batch')
+
         return loss
 
     def train(self, n_epoch=10, epoch_update_step=1, watch_parameters=False,

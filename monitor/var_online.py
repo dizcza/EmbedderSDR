@@ -41,13 +41,16 @@ class VarianceOnline(object):
         self.count = 0
 
 
+def dataset_mean_std_file(dataset_cls: type):
+    return (DATA_DIR / "mean_std" / dataset_cls.__name__).with_suffix('.pt')
+
+
 def dataset_mean_std(dataset_cls: type):
     """
     :param dataset_cls: class type of torch.utils.data.Dataset
     :return: samples' mean and std per channel, estimated from a training set
     """
-    mean_std_file = DATA_DIR / "mean_std" / dataset_cls.__name__
-    mean_std_file = mean_std_file.with_suffix('.pt')
+    mean_std_file = dataset_mean_std_file(dataset_cls)
     if not mean_std_file.exists():
         dataset = dataset_cls(DATA_DIR, train=True, download=True, transform=transforms.ToTensor())
         loader = torch.utils.data.DataLoader(dataset, batch_size=32, shuffle=False, num_workers=4)

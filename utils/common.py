@@ -1,13 +1,15 @@
 import math
 import time
-from collections import namedtuple
+from collections import namedtuple, defaultdict
 from functools import lru_cache, wraps
 from pathlib import Path
 
+import numpy as np
 import torch
 import torch.utils.data
 from torchvision import transforms, datasets
 
+from utils.caltech import Caltech256, Caltech10
 from utils.constants import DATA_DIR, MODELS_DIR, BATCH_SIZE
 from utils.datasubset import MNIST56, FashionMNIST56, CIFAR10_56
 from utils.normalize import NormalizeFromDataset
@@ -47,12 +49,16 @@ def timer_profile(func):
     """
     For debug purposes only.
     """
+    func_duration = defaultdict(list)
+
     @wraps(func)
     def wrapped(*args, **kwargs):
         start = time.time()
         res = func(*args, **kwargs)
         elapsed = time.time() - start
-        print(f"{func.__name__} {elapsed * 1e3} ms")
+        elapsed *= 1e3
+        func_duration[func.__name__].append(elapsed)
+        print(f"{func.__name__} {elapsed: .3f} (mean: {np.mean(func_duration[func.__name__]): .3f}) ms")
         return res
 
     return wrapped
@@ -65,6 +71,10 @@ def get_data_loader(dataset: str, train=True, batch_size=BATCH_SIZE) -> torch.ut
         dataset = FashionMNIST56(train=train)
     elif dataset == "CIFAR10_56":
         dataset = CIFAR10_56(train=train)
+    elif dataset == "Caltech256":
+        dataset = Caltech256(train=train)
+    elif dataset == "Caltech10":
+        dataset = Caltech10(train=train)
     else:
         if dataset == "MNIST":
             dataset_class = datasets.MNIST
