@@ -15,26 +15,27 @@ CALTECH_RAW = DATA_DIR / "Caltech_raw"
 CALTECH_256 = DATA_DIR / "Caltech256"
 CALTECH_10 = DATA_DIR / "Caltech10"
 
+CALTECH_URL = "http://www.vision.caltech.edu/Image_Datasets/Caltech256/256_ObjectCategories.tar"
+TAR_FILEPATH = CALTECH_RAW / CALTECH_URL.split('/')[-1]
+
 
 def download():
-    url = "http://www.vision.caltech.edu/Image_Datasets/Caltech256/256_ObjectCategories.tar"
     os.makedirs(CALTECH_RAW, exist_ok=True)
-    filepath = CALTECH_RAW / url.split('/')[-1]
-    if check_integrity(filepath, md5="67b4f42ca05d46448c6bb8ecd2220f6d"):
-        print(f"Using downloaded and verified {filepath}")
+    if check_integrity(TAR_FILEPATH, md5="67b4f42ca05d46448c6bb8ecd2220f6d"):
+        print(f"Using downloaded and verified {TAR_FILEPATH}")
     else:
-        request = requests.get(url, stream=True)
+        request = requests.get(CALTECH_URL, stream=True)
         total_size = int(request.headers.get('content-length', 0))
         wrote_bytes = 0
-        with open(filepath, 'wb') as f:
-            for data in tqdm(request.iter_content(chunk_size=1024), desc=f"Downloading {url}",
+        with open(TAR_FILEPATH, 'wb') as f:
+            for data in tqdm(request.iter_content(chunk_size=1024), desc=f"Downloading {CALTECH_URL}",
                              total=total_size // 1024,
                              unit='KB', unit_scale=True):
                 wrote_bytes += f.write(data)
         if wrote_bytes != total_size:
             warnings.warn("Content length mismatch. Try downloading again.")
-    print(f"Extracting {filepath}")
-    with tarfile.open(filepath) as tar:
+    print(f"Extracting {TAR_FILEPATH}")
+    with tarfile.open(TAR_FILEPATH) as tar:
         tar.extractall(path=CALTECH_RAW)
 
 
@@ -46,8 +47,9 @@ def move_files(filepaths, folder_to):
 
 def split_train_test(train_part=0.8):
     # we don't need noise/background class
-    shutil.rmtree(CALTECH_RAW / "257.clutter", ignore_errors=True)
-    for category in CALTECH_RAW.iterdir():
+    caltech_root = CALTECH_RAW / TAR_FILEPATH.stem
+    shutil.rmtree(caltech_root / "257.clutter", ignore_errors=True)
+    for category in caltech_root.iterdir():
         images = list(filter(lambda filepath: filepath.suffix == '.jpg', category.iterdir()))
         random.shuffle(images)
         n_train = int(train_part * len(images))
