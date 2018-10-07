@@ -1,4 +1,5 @@
 import math
+import os
 import time
 from collections import namedtuple, defaultdict
 from functools import lru_cache, wraps
@@ -91,7 +92,8 @@ def get_data_loader(dataset: str, train=True, batch_size=BATCH_SIZE) -> torch.ut
         transform.extend([transforms.ToTensor(), NormalizeFromDataset(dataset_cls=dataset_class)])
         transform = transforms.Compose(transform)
         dataset = dataset_class(DATA_DIR, train=train, download=True, transform=transform)
-    loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
+    num_workers = int(os.environ.get('LOADER_WORKERS', 4))
+    loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
     return loader
 
 
