@@ -1,6 +1,5 @@
 from .kwta import KWinnersTakeAll, KWinnersTakeAllSoft, SynapticScaling
-from .dpn import DPN26, DPN92
+from model.cifar.dpn import DPN26, DPN92
 from .embedder import EmbedderSDR
-from .mobilenet import MobileNet
-from .mobilenetv2 import MobileNetV2
-from .cifar import CIFAR10
+from model.cifar.mobilenet import MobileNet
+from model.cifar.cifar import CIFAR10
