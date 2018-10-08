@@ -60,12 +60,11 @@ def split_train_test(train_part=0.8):
     print("Split Caltech dataset.")
 
 
-def prepare_subset():
+def prepare_subset(classes):
     """
     Prepares Caltech10 data subset.
     """
-    subcategories = sorted(os.listdir(CALTECH_256 / "train"))[:10]
-    for category in subcategories:
+    for category in classes:
         for fold in ("train", "test"):
             shutil.copytree(CALTECH_256 / fold / category, CALTECH_10 / fold / category)
 
@@ -96,9 +95,8 @@ class Caltech256(torchvision.datasets.ImageFolder):
 
 
 class Caltech10(Caltech256):
-    """
-    Caltech256 first 10 classes subset.
-    """
+    classes = ("001.ak47", "009.bear", "010.beer-mug", "024.butterfly", "025.cactus",
+               "028.camel", "030.canoe", "055.dice", "056.dog", "060.duck")
 
     def __init__(self, train=True):
         super().__init__(train=train, root=CALTECH_10)
@@ -106,4 +104,4 @@ class Caltech10(Caltech256):
     def prepare(self):
         super().prepare()
         if not CALTECH_10.exists():
-            prepare_subset()
+            prepare_subset(self.classes)
