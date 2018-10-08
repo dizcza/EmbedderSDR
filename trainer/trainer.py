@@ -88,6 +88,7 @@ class Trainer(ABC):
         label = labels[sample_max_proba]
         self.monitor.plot_mask(self.model, mask_trainer=self.mask_trainer, image=image, label=label)
         mode_saved.restore(self.model)
+        return image, label
 
     def get_adversarial_examples(self, noise_ampl=100, n_iter=10):
         """

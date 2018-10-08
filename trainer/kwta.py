@@ -6,7 +6,9 @@ from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
 
 from model.kwta import KWinnersTakeAllSoft, KWinnersTakeAll, SynapticScaling
 from trainer.gradient import TrainerGrad
+from trainer.mask import MaskTrainerIndex
 from utils.layers import find_layers, find_named_layers
+from utils.prepare import prepare_eval
 
 
 class KWTAScheduler:
@@ -63,6 +65,7 @@ class TrainerGradKWTA(TrainerGrad):
         super().__init__(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
                          scheduler=scheduler, **kwargs)
         self.kwta_scheduler = kwta_scheduler
+        self.mask_trainer_kwta = MaskTrainerIndex(image_shape=self.mask_trainer.image_shape)
 
     def monitor_functions(self):
         super().monitor_functions()
@@ -77,6 +80,7 @@ class TrainerGradKWTA(TrainerGrad):
                         ylabel='Neuron id',
                         title=title,
                     ))
+
         self.monitor.register_func(lateral_weights)
 
         if self.kwta_scheduler is not None:
@@ -148,3 +152,17 @@ class TrainerGradKWTA(TrainerGrad):
         if self.kwta_scheduler is not None:
             self.kwta_scheduler.step(epoch=epoch)
         return loss
+
+    def train_mask(self):
+        image, label = super().train_mask()
+        mode_saved = prepare_eval(self.model)
+        with torch.no_grad():
+            output = self.model(image.unsqueeze(dim=0))
+        output_sorted, argsort = output[0].sort(dim=0, descending=True)
+        neurons_check = min(5, len(argsort))
+        for i in range(neurons_check):
+            neuron_max = argsort[i]
+            self.monitor.plot_mask(self.model, mask_trainer=self.mask_trainer_kwta, image=image, label=neuron_max,
+                                   win_suffix=i)
+        mode_saved.restore(self.model)
+        return image, label

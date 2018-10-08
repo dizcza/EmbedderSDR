@@ -260,12 +260,12 @@ class Monitor(object):
         images_stacked.clamp_(0, 1)
         self.viz.image(images_stacked, win='Adversarial examples', opts=dict(title='Adversarial examples'))
 
-    def plot_mask(self, model: nn.Module, mask_trainer, image, label):
+    def plot_mask(self, model: nn.Module, mask_trainer, image, label, win_suffix=''):
         def forward_probability(image_example):
             with torch.no_grad():
                 outputs = model(image_example.unsqueeze(dim=0))
-            proba = self.accuracy_measure.predict_proba(outputs)
-            return proba[0, label]
+            proba = mask_trainer.get_probability(outputs=outputs, label=label)
+            return proba
         mask, loss_trace, image_perturbed = mask_trainer.train_mask(model=model, image=image, label_true=label)
         proba_original = forward_probability(image)
         proba_perturbed = forward_probability(image_perturbed)
@@ -275,10 +275,10 @@ class Monitor(object):
         image_masked = mask * image
         images_stacked = torch.stack([image, mask, image_masked, image_perturbed], dim=0)
         images_stacked.clamp_(0, 1)
-        self.viz.images(images_stacked, nrow=len(images_stacked), win='masked images', opts=dict(
-            title=f"Masked image decreases probability {proba_original:.4f} -> {proba_perturbed:.4f}"
+        self.viz.images(images_stacked, nrow=len(images_stacked), win=f'masked images {win_suffix}', opts=dict(
+            title=f"Masked image decreases neuron '{label}' probability {proba_original:.4f} -> {proba_perturbed:.4f}"
         ))
-        self.viz.line(Y=loss_trace, X=np.arange(1, len(loss_trace)+1), win='mask loss', opts=dict(
+        self.viz.line(Y=loss_trace, X=np.arange(1, len(loss_trace)+1), win=f'mask loss {win_suffix}', opts=dict(
             xlabel='Iteration',
             title='Mask loss'
         ))
