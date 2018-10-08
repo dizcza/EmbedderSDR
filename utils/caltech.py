@@ -3,12 +3,14 @@ import random
 import shutil
 import tarfile
 import warnings
+from pathlib import Path
 
 import requests
-import torchvision
 import torch.utils.data
+import torchvision
 from torchvision.datasets.utils import check_integrity
-from tqdm import tqdm
+from torchvision.datasets.folder import default_loader, IMG_EXTENSIONS
+from tqdm import tqdm, trange
 
 from utils.constants import DATA_DIR
 
@@ -21,7 +23,7 @@ TAR_FILEPATH = CALTECH_RAW / CALTECH_URL.split('/')[-1]
 
 
 def download():
-    os.makedirs(CALTECH_RAW, exist_ok=True)
+    CALTECH_RAW.mkdir(parents=True, exist_ok=True)
     if check_integrity(TAR_FILEPATH, md5="67b4f42ca05d46448c6bb8ecd2220f6d"):
         print(f"Using downloaded and verified {TAR_FILEPATH}")
     else:
@@ -40,8 +42,8 @@ def download():
         tar.extractall(path=CALTECH_RAW)
 
 
-def move_files(filepaths, folder_to):
-    os.makedirs(folder_to, exist_ok=True)
+def move_files(filepaths, folder_to: Path):
+    folder_to.mkdir(parents=True, exist_ok=True)
     for filepath in filepaths:
         filepath.rename(folder_to / filepath.name)
 
@@ -71,29 +73,36 @@ def prepare_subset():
             shutil.copytree(CALTECH_256 / fold / category, CALTECH_10 / fold / category)
 
 
-class Caltech256(torch.utils.data.TensorDataset):
-    def __init__(self, train=True, root=CALTECH_256):
+class Caltech256(torchvision.datasets.DatasetFolder):
+    def __init__(self, train=True, transformed=False, root=CALTECH_256):
         fold = "train" if train else "test"
         self.root = root / fold
         self.prepare()
-        self.transform_images()
-        with open(self.transformed_data_path, 'rb') as f:
-            data, targets = torch.load(f)
-        super().__init__(data, targets)
+        if transformed:
+            self.transform_images()
+            super().__init__(root=self.root_transformed, loader=self.loader, extensions=['.pt'])
+        else:
+            super().__init__(root=self.root, loader=default_loader, extensions=IMG_EXTENSIONS,
+                             transform=self.transform_caltech)
 
     def prepare(self):
         if not CALTECH_256.exists():
             download()
             split_train_test()
 
-    @property
-    def transformed_data_path(self):
-        return self.root.with_suffix('.pt')
+    @staticmethod
+    def loader(path):
+        with open(path, 'rb') as f:
+            image = torch.load(f)
+        return image
 
-    def transform_images(self):
-        if self.transformed_data_path.exists():
-            return
-        transform = torchvision.transforms.Compose([
+    @property
+    def root_transformed(self):
+        return self.root.with_name(self.root.name + "_transformed")
+
+    @property
+    def transform_caltech(self):
+        return torchvision.transforms.Compose([
             torchvision.transforms.Resize(size=(224, 224)),
             torchvision.transforms.ToTensor(),
             torchvision.transforms.Normalize(
@@ -101,17 +110,20 @@ class Caltech256(torch.utils.data.TensorDataset):
                 std=[0.229, 0.224, 0.225]
             )
         ])
-        dataset = torchvision.datasets.ImageFolder(root=self.root, transform=transform)
-        loader = torch.utils.data.DataLoader(dataset, batch_size=32, num_workers=4)
-        images_full = []
-        labels_full = []
-        for images, labels in tqdm(loader, desc=f"Applying image transform {self.root}"):
-            images_full.append(images)
-            labels_full.append(labels)
-        images_full = torch.cat(images_full, dim=0)
-        labels_full = torch.cat(labels_full, dim=0)
-        with open(self.transformed_data_path, 'wb') as f:
-            torch.save((images_full, labels_full), f)
+
+    def transform_images(self):
+        if self.root_transformed.exists():
+            return
+        dataset = torchvision.datasets.ImageFolder(root=self.root, transform=self.transform_caltech)
+        for sample_id in trange(len(dataset.samples), desc=f"Applying image transform {self.root}"):
+            image_path, class_id = dataset.samples[sample_id]
+            image = dataset.loader(image_path)
+            image = dataset.transform(image)
+            transformed_path = self.root_transformed / dataset.classes[class_id] / Path(image_path).name
+            transformed_path = transformed_path.with_suffix('.pt')
+            transformed_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(transformed_path, 'wb') as f:
+                torch.save(image, f)
 
 
 class Caltech10(Caltech256):
