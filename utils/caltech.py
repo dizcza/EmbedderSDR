@@ -6,6 +6,7 @@ import warnings
 
 import requests
 import torchvision
+import torch.utils.data
 from torchvision.datasets.utils import check_integrity
 from tqdm import tqdm
 
@@ -70,16 +71,29 @@ def prepare_subset():
             shutil.copytree(CALTECH_256 / fold / category, CALTECH_10 / fold / category)
 
 
-class Caltech256(torchvision.datasets.ImageFolder):
+class Caltech256(torch.utils.data.TensorDataset):
     def __init__(self, train=True, root=CALTECH_256):
+        fold = "train" if train else "test"
+        self.root = root / fold
         self.prepare()
-        transforms = []
-        if train:
-            fold = "train"
-            transforms.append(torchvision.transforms.RandomHorizontalFlip())
-        else:
-            fold = "test"
-        transforms.extend([
+        self.transform_images()
+        with open(self.transformed_data_path, 'rb') as f:
+            data, targets = torch.load(f)
+        super().__init__(data, targets)
+
+    def prepare(self):
+        if not CALTECH_256.exists():
+            download()
+            split_train_test()
+
+    @property
+    def transformed_data_path(self):
+        return self.root.with_suffix('.pt')
+
+    def transform_images(self):
+        if self.transformed_data_path.exists():
+            return
+        transform = torchvision.transforms.Compose([
             torchvision.transforms.Resize(size=(224, 224)),
             torchvision.transforms.ToTensor(),
             torchvision.transforms.Normalize(
@@ -87,12 +101,17 @@ class Caltech256(torchvision.datasets.ImageFolder):
                 std=[0.229, 0.224, 0.225]
             )
         ])
-        super().__init__(root=root / fold, transform=torchvision.transforms.Compose(transforms))
-
-    def prepare(self):
-        if not CALTECH_256.exists():
-            download()
-            split_train_test()
+        dataset = torchvision.datasets.ImageFolder(root=self.root, transform=transform)
+        loader = torch.utils.data.DataLoader(dataset, batch_size=32, num_workers=4)
+        images_full = []
+        labels_full = []
+        for images, labels in tqdm(loader, desc=f"Applying image transform {self.root}"):
+            images_full.append(images)
+            labels_full.append(labels)
+        images_full = torch.cat(images_full, dim=0)
+        labels_full = torch.cat(labels_full, dim=0)
+        with open(self.transformed_data_path, 'wb') as f:
+            torch.save((images_full, labels_full), f)
 
 
 class Caltech10(Caltech256):
