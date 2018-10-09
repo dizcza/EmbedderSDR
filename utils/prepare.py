@@ -1,6 +1,6 @@
 import torch.nn as nn
 
-from model.kwta import KWinnersTakeAllSoft
+from models.kwta import KWinnersTakeAllSoft
 from utils.layers import find_layers
 
 

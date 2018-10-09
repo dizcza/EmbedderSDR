@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.utils.data
 from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
 
-from model.kwta import KWinnersTakeAllSoft, KWinnersTakeAll, SynapticScaling
+from models.kwta import KWinnersTakeAllSoft, KWinnersTakeAll, SynapticScaling
 from trainer.gradient import TrainerGrad
 from trainer.mask import MaskTrainerIndex
 from utils.layers import find_layers, find_named_layers

@@ -2,7 +2,7 @@ import copy
 
 import torch.nn as nn
 
-from model.kwta import KWinnersTakeAll
+from models.kwta import KWinnersTakeAll
 
 
 class Identity(nn.Module):

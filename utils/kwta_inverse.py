@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import torch
 import torch.utils.data
 
-from model.kwta import _KWinnersTakeAllFunction
+from models.kwta import _KWinnersTakeAllFunction
 from utils.normalize import get_normalize_inverse
 from utils.common import get_data_loader, factors_root
 

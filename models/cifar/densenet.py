@@ -33,7 +33,7 @@ class Transition(nn.Module):
 
 
 class DenseNet(nn.Module):
-    def __init__(self, last_layer: nn.Module, n_blocks_layers: list, growth_rate=12, reduction=0.5):
+    def __init__(self, n_blocks_layers: list, growth_rate=12, reduction=0.5):
         super().__init__()
         self.growth_rate = growth_rate
 
@@ -56,7 +56,7 @@ class DenseNet(nn.Module):
         self.bn = nn.BatchNorm2d(num_planes)
         self.relu = nn.ReLU(inplace=True)
         self.avg_pool2d = nn.AvgPool2d(kernel_size=4)
-        self.last_layer = last_layer
+        self.linear = nn.Linear(num_planes, 10)
 
     def make_dense_layers(self, in_planes, n_blocks):
         layers = []
@@ -72,26 +72,25 @@ class DenseNet(nn.Module):
         out = self.relu(out)
         out = self.avg_pool2d(out)
         out = out.view(out.size(0), -1)
-        if self.last_layer is not None:
-            out = self.last_layer(out)
+        out = self.linear(out)
         return out
 
 
 class DenseNet121(DenseNet):
-    def __init__(self, last_layer):
-        super().__init__(last_layer=last_layer, n_blocks_layers=[6, 12, 24, 16], growth_rate=32)
+    def __init__(self):
+        super().__init__(n_blocks_layers=[6, 12, 24, 16], growth_rate=32)
 
 
 class DenseNet169(DenseNet):
-    def __init__(self, last_layer):
-        super().__init__(last_layer=last_layer, n_blocks_layers=[6, 12, 48, 32], growth_rate=32)
+    def __init__(self):
+        super().__init__(n_blocks_layers=[6, 12, 48, 32], growth_rate=32)
 
 
 class DenseNet201(DenseNet):
-    def __init__(self, last_layer):
-        super().__init__(last_layer=last_layer, n_blocks_layers=[6, 12, 48, 32], growth_rate=32)
+    def __init__(self):
+        super().__init__(n_blocks_layers=[6, 12, 48, 32], growth_rate=32)
 
 
 class DenseNet161(DenseNet):
-    def __init__(self, last_layer):
-        super().__init__(last_layer=last_layer, n_blocks_layers=[6, 12, 36, 24], growth_rate=48)
+    def __init__(self):
+        super().__init__(n_blocks_layers=[6, 12, 36, 24], growth_rate=48)

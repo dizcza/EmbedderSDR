@@ -6,8 +6,10 @@ import torchvision.models
 import torchvision.transforms
 from PIL import Image
 
+import models.caltech
+import models.cifar
 from loss import ContrastiveLossBatch
-from model import *
+from models import *
 from monitor.accuracy import AccuracyArgmax
 from monitor.monitor import Monitor
 from trainer import *
@@ -57,7 +59,6 @@ def train_mask():
 def train_grad(n_epoch=500, dataset_name="CIFAR10_56"):
     model = EmbedderSDR(last_layer=nn.Linear(128, 2), dataset_name=dataset_name)
     optimizer, scheduler = get_optimizer_scheduler(model)
-    # criterion = ContrastiveLossBatch(metric='cosine')
     criterion = nn.CrossEntropyLoss()
     trainer = TrainerGrad(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
                           scheduler=scheduler)
@@ -78,7 +79,7 @@ def train_kwta(n_epoch=500, dataset_name="CIFAR10_56"):
 
 
 def test(n_epoch=500, dataset_name="CIFAR10"):
-    model = CIFAR10(pretrained=True)
+    model = models.cifar.CIFAR10(pretrained=True)
     model.eval()
     for param in model.parameters():
         param.requires_grad_(False)
@@ -89,7 +90,7 @@ def test(n_epoch=500, dataset_name="CIFAR10"):
 
 
 def train_pretrained(n_epoch=500, dataset_name="CIFAR10"):
-    model = CIFAR10(pretrained=True)
+    model = models.cifar.CIFAR10(pretrained=True)
     for param in model.parameters():
         param.requires_grad_(False)
     kwta = KWinnersTakeAllSoft(sparsity=0.3, connect_lateral=False)
@@ -103,14 +104,12 @@ def train_pretrained(n_epoch=500, dataset_name="CIFAR10"):
     trainer.train(n_epoch=n_epoch, epoch_update_step=1, watch_parameters=True, mutual_info_layers=1, mask_explain=True)
 
 
-def train_caltech(n_epoch=500, dataset_name="Caltech256", with_kwta=True):
-    model = torchvision.models.resnet18(pretrained=True)
-    for param in model.parameters():
-        param.requires_grad_(False)
-    if with_kwta:
-        kwta = KWinnersTakeAllSoft(sparsity=0.3, connect_lateral=False)
-        model.fc = nn.Sequential(nn.Linear(512, 256, bias=False), kwta)
-        criterion = ContrastiveLossBatch(metric='cosine')
+def train_caltech(n_epoch=500, dataset_name="Caltech256"):
+    kwta = None
+    kwta = KWinnersTakeAllSoft(sparsity=0.3, connect_lateral=False)
+    model = models.caltech.squeezenet1_1(kwta=kwta)
+    if kwta:
+        criterion = ContrastiveLossBatch(metric='cosine', random_pairs=True)
         optimizer, scheduler = get_optimizer_scheduler(model)
         kwta_scheduler = KWTAScheduler(model=model, step_size=15, gamma_sparsity=0.5, min_sparsity=0.05,
                                        gamma_hardness=2, max_hardness=10)
