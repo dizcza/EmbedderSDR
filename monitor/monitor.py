@@ -213,12 +213,14 @@ class Monitor(object):
     def plot_accuracy_confusion_matrix(self, labels_true, labels_predicted, mode):
         self.update_accuracy(accuracy=calc_accuracy(labels_true, labels_predicted), mode=mode)
         title = f"Confusion matrix '{mode}'"
-        confusion = confusion_matrix(labels_true, labels_predicted)
-        self.viz.heatmap(confusion, win=title, opts=dict(
-            title=title,
-            xlabel='Predicted label',
-            ylabel='True label',
-        ))
+        if len(labels_true.unique()) <= self.n_classes_format_ytickstep_1:
+            # don't plot huge matrix
+            confusion = confusion_matrix(labels_true, labels_predicted)
+            self.viz.heatmap(confusion, win=title, opts=dict(
+                title=title,
+                xlabel='Predicted label',
+                ylabel='True label',
+            ))
 
     def update_accuracy_epoch(self, model: nn.Module, outputs_train, labels_train):
         outputs_test, labels_test = get_outputs(model, loader=self.test_loader)
