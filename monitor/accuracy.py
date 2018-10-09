@@ -98,7 +98,13 @@ class AccuracyEmbedding(Accuracy):
     def distances(self, outputs_test):
         assert len(self.centroids) > 0, "Save train embeddings first"
         centroids = torch.as_tensor(self.centroids, device=outputs_test.device)
-        distances = (outputs_test.unsqueeze(dim=1) - centroids).abs_().sum(dim=-1)
+        distances = []
+        outputs_test = outputs_test.unsqueeze(dim=1)
+        for centroids_chunk in centroids.split(split_size=50, dim=0):
+            # memory efficient
+            distances_chunk = (outputs_test - centroids_chunk).abs_().sum(dim=-1)
+            distances.append(distances_chunk)
+        distances = torch.cat(distances, dim=1)
         return distances
 
     def save(self, outputs_train, labels_train):
