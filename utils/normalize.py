@@ -28,6 +28,9 @@ class NormalizeInverse(transforms.Normalize):
         mean_inv = -mean * std_inv
         super().__init__(mean=mean_inv, std=std_inv)
 
+    def __call__(self, tensor):
+        return super().__call__(tensor.clone())
+
 
 def get_normalize_inverse(transform_composed: transforms.Compose):
     if transform_composed is None:
