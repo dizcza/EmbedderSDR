@@ -110,7 +110,7 @@ def train_caltech(n_epoch=500, dataset_name="Caltech256", with_kwta=True):
     if with_kwta:
         kwta = KWinnersTakeAllSoft(sparsity=0.3, connect_lateral=False)
         model.fc = nn.Sequential(nn.Linear(512, 256, bias=False), kwta)
-        criterion = ContrastiveLossBatch(metric='cosine')
+        criterion = ContrastiveLossBatch(metric='cosine', random_pairs=True)
         optimizer, scheduler = get_optimizer_scheduler(model)
         kwta_scheduler = KWTAScheduler(model=model, step_size=15, gamma_sparsity=0.5, min_sparsity=0.05,
                                        gamma_hardness=2, max_hardness=10)

@@ -74,13 +74,13 @@ def prepare_subset():
 
 
 class Caltech256(torchvision.datasets.DatasetFolder):
-    def __init__(self, train=True, transformed=False, root=CALTECH_256):
+    def __init__(self, train=True, transformed=True, root=CALTECH_256):
         fold = "train" if train else "test"
         self.root = root / fold
         self.prepare()
         if transformed:
             self.transform_images()
-            super().__init__(root=self.root_transformed, loader=self.loader, extensions=['.pt'])
+            super().__init__(root=self.root_transformed, loader=torch.load, extensions=['.pt'])
         else:
             super().__init__(root=self.root, loader=default_loader, extensions=IMG_EXTENSIONS,
                              transform=self.transform_caltech)
@@ -89,12 +89,6 @@ class Caltech256(torchvision.datasets.DatasetFolder):
         if not CALTECH_256.exists():
             download()
             split_train_test()
-
-    @staticmethod
-    def loader(path):
-        with open(path, 'rb') as f:
-            image = torch.load(f)
-        return image
 
     @property
     def root_transformed(self):
@@ -122,8 +116,7 @@ class Caltech256(torchvision.datasets.DatasetFolder):
             transformed_path = self.root_transformed / dataset.classes[class_id] / Path(image_path).name
             transformed_path = transformed_path.with_suffix('.pt')
             transformed_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(transformed_path, 'wb') as f:
-                torch.save(image, f)
+            torch.save(image, transformed_path)
 
 
 class Caltech10(Caltech256):
