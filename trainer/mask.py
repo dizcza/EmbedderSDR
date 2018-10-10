@@ -70,7 +70,7 @@ class MaskTrainerIndex:
             optimizer.zero_grad()
             noise = torch.randn_like(image) * 0.2
             image_perturbed = mask_upsampled * image + (1 - mask_upsampled) * image_blurred
-            outputs = model(image_perturbed)
+            outputs = model(image_perturbed + noise)
             proba = self.get_probability(outputs=outputs, label=label_true)
             loss = self.l1_coeff * (1 - mask_upsampled).abs().mean() + \
                    self.tv_coeff * tv_norm(mask_upsampled, self.tv_beta) + proba
