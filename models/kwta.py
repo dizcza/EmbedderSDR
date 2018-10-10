@@ -1,9 +1,9 @@
 import math
 
 import torch
-import torch.nn as nn
 
 from utils.constants import SPARSITY
+from utils.layers import SerializableModule
 
 
 def get_kwta_threshold(tensor: torch.FloatTensor, sparsity: float):
@@ -11,7 +11,7 @@ def get_kwta_threshold(tensor: torch.FloatTensor, sparsity: float):
     tensor = tensor.view(tensor.shape[0], -1)
     k_active = math.ceil(sparsity * tensor.shape[1])
     x_sorted, argsort = tensor.sort(dim=1, descending=True)
-    threshold = x_sorted[:, [k_active-1, k_active]].mean(dim=1)
+    threshold = x_sorted[:, [k_active - 1, k_active]].mean(dim=1)
     threshold = threshold.view(-1, *unsqueeze_dim)
     return threshold
 
@@ -29,7 +29,9 @@ class _KWinnersTakeAllFunction(torch.autograd.Function):
         return grad_output, None
 
 
-class KWinnersTakeAll(nn.Module):
+class KWinnersTakeAll(SerializableModule):
+
+    state_attr = ["sparsity"]
 
     def __init__(self, sparsity=SPARSITY, connect_lateral=False):
         """
@@ -84,6 +86,8 @@ class KWinnersTakeAll(nn.Module):
 
 class KWinnersTakeAllSoft(KWinnersTakeAll):
 
+    state_attr = KWinnersTakeAll.state_attr + ['hardness']
+
     def __init__(self, sparsity=SPARSITY, connect_lateral=False, hardness=1):
         """
         :param sparsity: how many bits leave active
@@ -107,10 +111,12 @@ class KWinnersTakeAllSoft(KWinnersTakeAll):
         return f"{old_repr}, hardness={self.hardness}"
 
 
-class SynapticScaling(nn.Module):
+class SynapticScaling(SerializableModule):
     """
     Wrapper for KWTA to account synaptic scaling plasticity.
     """
+
+    state_attr = ['synaptic_scale', 'frequency', 'seen']
 
     def __init__(self, kwta_layer: KWinnersTakeAll, synaptic_scale=1.0):
         super().__init__()

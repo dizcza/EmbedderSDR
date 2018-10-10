@@ -1,8 +1,7 @@
 import copy
+from abc import ABC
 
 import torch.nn as nn
-
-from models.kwta import KWinnersTakeAll
 
 
 class Identity(nn.Module):
@@ -22,7 +21,7 @@ def find_named_layers(model: nn.Module, layer_class, name_prefix=''):
         yield name_prefix.lstrip('.'), model
 
 
-def replace_relu(model: nn.Module, new_relu: KWinnersTakeAll, drop_layers=()):
+def replace_relu(model: nn.Module, new_relu, drop_layers=()):
     """
     :param model: network model
     :param new_relu: new relu activation function
@@ -41,3 +40,24 @@ def replace_relu(model: nn.Module, new_relu: KWinnersTakeAll, drop_layers=()):
     if isinstance(model, (nn.ReLU, nn.RReLU, nn.ReLU6, nn.LeakyReLU, nn.PReLU)):
         model = copy.deepcopy(new_relu)
     return model
+
+
+class SerializableModule(nn.Module, ABC):
+    state_attr = []
+
+    def state_dict(self, destination=None, prefix='', keep_vars=False):
+        destination = super().state_dict(destination=destination, prefix=prefix, keep_vars=keep_vars)
+        for attribute in self.state_attr:
+            destination[prefix + attribute] = getattr(self, attribute)
+        return destination
+
+    def _load_from_state_dict(self, state_dict, prefix, metadata, strict, missing_keys, unexpected_keys, error_msgs):
+        state_dict_keys = list(state_dict.keys())
+        for attribute in self.state_attr:
+            key = prefix + attribute
+            if key in state_dict_keys:
+                setattr(self, attribute, state_dict.pop(key))
+            elif strict:
+                missing_keys.append(key)
+        super()._load_from_state_dict(state_dict=state_dict, prefix=prefix, metadata=metadata, strict=strict,
+                                      missing_keys=missing_keys, unexpected_keys=unexpected_keys, error_msgs=error_msgs)
