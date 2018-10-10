@@ -26,6 +26,9 @@ class BatchTimer(object):
     def tick(self):
         self.batch_id += 1
 
+    def set_epoch(self, epoch):
+        self.batch_id = self.batches_in_epoch * epoch
+
 
 timer = BatchTimer()
 

@@ -15,11 +15,12 @@ class VisdomMighty(visdom.Visdom):
         server = os.environ.get('VISDOM_SERVER', 'http://localhost')
         env = env.replace('_', '-')  # visdom things
         super().__init__(env=env, server=server, port=port)
-        self.close(env=self.env)
+        print(f"Monitor is opened at {self.server}:{self.port}. Choose environment '{self.env}'.")
         self.timer = timer
-        print(f"Monitor is opened at {server}:{port}. Choose environment '{self.env}'.")
-        self.log(f"Batches in epoch: {timer.batches_in_epoch}")
         self.legends = defaultdict(list)
+
+    def clear(self):
+        self.close()
         self.register_plot(win='Loss', legend=['batch', 'full train'])
         self.register_plot(win='Accuracy', legend=['full train', 'full test'])
 

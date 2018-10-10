@@ -1,3 +1,4 @@
+import os
 import time
 import warnings
 from abc import ABC, abstractmethod
@@ -15,41 +16,55 @@ from monitor.monitor import Monitor
 from trainer.checkpoint import Checkpoint
 from trainer.mask import MaskTrainer
 from utils.common import get_data_loader, AdversarialExamples
+from utils.constants import CHECKPOINTS_DIR
 from utils.layers import find_named_layers
 from utils.prepare import prepare_eval
 
 
 class Trainer(ABC):
-
     watch_modules = (nn.Linear, nn.Conv2d)
 
-    def __init__(self, model: nn.Module, criterion: nn.Module, dataset_name: str, patience=None, env_suffix=''):
+    def __init__(self, model: nn.Module, criterion: nn.Module, dataset_name: str, restore=True, env_suffix=''):
         self.model = model
         self.criterion = criterion
         self.dataset_name = dataset_name
         self.train_loader = get_data_loader(dataset_name, train=True)
         self.timer = timer
         self.timer.init(batches_in_epoch=len(self.train_loader))
-        env_name = self.env_name
-        if env_suffix:
-            env_name += f" {env_suffix}"
         if isinstance(self.criterion, ContrastiveLoss):
             self.accuracy_measure = AccuracyEmbedding()
         else:
             self.accuracy_measure = AccuracyArgmax()
+
+        # restoring previous training
+        self.checkpoint = Checkpoint(checkpoint_dir=CHECKPOINTS_DIR / os.path.sep.join(self.env_pieces))
+        restored = False
+        if restore:
+            restored = self.checkpoint.restore(self.model)
+        self.timer.set_epoch(self.checkpoint.epoch)
+        if self.checkpoint.env_name is None:
+            env_name = self.env_name
+            if env_suffix:
+                env_name += f" {env_suffix}"
+            self.checkpoint.env_name = env_name
         self.monitor = Monitor(test_loader=get_data_loader(self.dataset_name, train=False),
                                accuracy_measure=self.accuracy_measure,
-                               env_name=env_name)
+                               env_name=self.checkpoint.env_name)
+        if not restored:
+            self.monitor.clear()
+
         for name, layer in find_named_layers(self.model, layer_class=self.watch_modules):
             self.monitor.register_layer(layer, prefix=name)
-        self.checkpoint = Checkpoint(model=self.model, patience=patience)
         images, labels = next(iter(self.train_loader))
         self.mask_trainer = MaskTrainer(accuracy_measure=self.accuracy_measure, image_shape=images[0].shape)
 
     @property
+    def env_pieces(self):
+        return self.model.__class__.__name__, self.dataset_name, self.__class__.__name__
+
+    @property
     def env_name(self) -> str:
-        env_name = f"{time.strftime('%Y.%m.%d')} {self.model.__class__.__name__}: " \
-                   f"{self.dataset_name} {self.__class__.__name__}"
+        env_name = f"{time.strftime('%Y.%m.%d')} " + ' '.join(self.env_pieces)
         return env_name
 
     def monitor_functions(self):
@@ -59,9 +74,6 @@ class Trainer(ABC):
         self.monitor.log(f"Criterion: {self.criterion}")
         self.monitor.log(repr(self.mask_trainer))
 
-    def reset_checkpoint(self):
-        self.checkpoint.reset(model=self.model)
-
     @abstractmethod
     def train_batch(self, images, labels):
         raise NotImplementedError()
@@ -69,7 +81,7 @@ class Trainer(ABC):
     def _epoch_finished(self, epoch, outputs, labels):
         loss = self.criterion(outputs, labels)
         self.monitor.update_loss(loss, mode='full train')
-        self.checkpoint.step(model=self.model, loss=loss)
+        self.checkpoint.epoch_finished(model=self.model, loss=loss, epoch=epoch)
         return loss
 
     def train_mask(self):
@@ -174,7 +186,7 @@ class Trainer(ABC):
             self.monitor.mutual_info.prepare(eval_loader, model=self.model, monitor_layers_count=mutual_info_layers)
         self.monitor.set_watch_mode(watch_parameters)
 
-        for epoch in range(n_epoch):
+        for epoch in range(self.timer.epoch, self.timer.epoch + n_epoch):
             loss_batch = self.train_epoch(epoch=epoch)
             if epoch % epoch_update_step == 0:
                 self.monitor.update_loss(loss=loss_batch, mode='batch')

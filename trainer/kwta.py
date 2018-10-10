@@ -24,23 +24,19 @@ class KWTAScheduler:
         self.min_sparsity = min_sparsity
         self.gamma_hardness = gamma_hardness
         self.max_hardness = max_hardness
-        self.epoch = 0
-        self.last_epoch_update = -1
+        self.last_epoch_update = 0
 
-    def need_update(self):
-        return self.epoch >= self.last_epoch_update + self.step_size
+    def need_update(self, epoch: int):
+        return epoch >= self.last_epoch_update + self.step_size
 
-    def step(self, epoch=None):
-        if epoch is not None:
-            self.epoch = epoch
-        if self.need_update():
+    def step(self, epoch: int):
+        if self.need_update(epoch):
             for layer in self.kwta_layers:
                 layer.clear_lateral()
                 layer.sparsity = max(layer.sparsity * self.gamma_sparsity, self.min_sparsity)
                 if isinstance(layer, KWinnersTakeAllSoft):
                     layer.hardness = min(layer.hardness * self.gamma_hardness, self.max_hardness)
-            self.last_epoch_update = self.epoch
-        self.epoch += 1
+            self.last_epoch_update = epoch
 
     def extra_repr(self):
         return f"step_size={self.step_size}, Sparsity(gamma={self.gamma_sparsity}, min={self.min_sparsity}), " \
@@ -64,6 +60,7 @@ class TrainerGradKWTA(TrainerGrad):
                  **kwargs):
         super().__init__(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
                          scheduler=scheduler, **kwargs)
+        kwta_scheduler.last_epoch_update = self.timer.epoch
         self.kwta_scheduler = kwta_scheduler
         self.mask_trainer_kwta = MaskTrainerIndex(image_shape=self.mask_trainer.image_shape)
 

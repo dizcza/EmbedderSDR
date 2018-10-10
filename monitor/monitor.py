@@ -143,6 +143,8 @@ class Monitor(object):
     def log_self(self):
         self.log(f"{self.__class__.__name__}(accuracy_measure={self.accuracy_measure.__class__.__name__})")
         self.log(f"FULL_FORWARD_PASS_SIZE: {os.environ.get('FULL_FORWARD_PASS_SIZE', '(all samples)')}")
+        self.log(f"BATCH_SIZE: {os.environ.get('BATCH_SIZE', '(default)')}")
+        self.log(f"Batches in epoch: {self.timer.batches_in_epoch}")
         commit = subprocess.run(['git', 'rev-parse', 'HEAD'], stdout=subprocess.PIPE, universal_newlines=True)
         self.log(f"Git commit: {commit.stdout}")
 
@@ -171,6 +173,9 @@ class Monitor(object):
             ylabel='Accuracy',
             title=f'Accuracy'
         ), name=mode)
+
+    def clear(self):
+        self.viz.clear()
 
     def register_func(self, *func: Callable):
         self.functions.extend(func)
