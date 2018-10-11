@@ -69,3 +69,4 @@ class TrainerGrad(Trainer):
                 self.optimizer.load_state_dict(checkpoint_state['optimizer'])
         except Exception as exception:
             print("Couldn't restore optimizer: ", exception)
+        return checkpoint_state

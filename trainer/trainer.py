@@ -84,6 +84,7 @@ class Trainer(ABC):
             return None
         self.env_name = checkpoint_state['env_name']
         self.timer.set_epoch(checkpoint_state['epoch'])
+        self.monitor.open(env_name=self.env_name)
         print(f"Restored model state from {checkpoint_path}.")
         return checkpoint_state
 
@@ -174,7 +175,10 @@ class Trainer(ABC):
         :param mask_explain: train the image mask that 'explains' network behaviour?
         """
         print(self.model)
-        self.monitor.open(env_name=self.env_name)
+        if not self.monitor.is_active:
+            # new environment
+            self.monitor.open(env_name=self.env_name)
+            self.monitor.clear()
         self.monitor_functions()
         self.monitor.log_model(self.model)
         self.log_trainer()
