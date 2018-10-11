@@ -56,3 +56,16 @@ class TrainerGrad(Trainer):
         elif isinstance(self.scheduler, _LRScheduler):
             self.scheduler.step(epoch=epoch)
         return loss
+
+    def state_dict(self):
+        state = super().state_dict()
+        state['optimizer'] = self.optimizer.state_dict()
+        return state
+
+    def restore(self, checkpoint_path=None):
+        checkpoint_state = super().restore(checkpoint_path)
+        try:
+            if checkpoint_state is not None:
+                self.optimizer.load_state_dict(checkpoint_state['optimizer'])
+        except Exception as exception:
+            print("Couldn't restore optimizer: ", exception)

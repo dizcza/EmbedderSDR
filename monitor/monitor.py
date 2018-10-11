@@ -113,15 +113,14 @@ class ParamsDict(UserDict):
 class Monitor(object):
     n_classes_format_ytickstep_1 = 10
 
-    def __init__(self, test_loader: torch.utils.data.DataLoader, accuracy_measure: Accuracy, env_name="main"):
+    def __init__(self, test_loader: torch.utils.data.DataLoader, accuracy_measure: Accuracy):
         """
         :param test_loader: dataloader to test model performance at each epoch_finished() call
         :param accuracy_measure: argmax or centroid embeddings accuracy measure
-        :param env_name: Visdom environment name
         """
         self.timer = timer
-        self.viz = VisdomMighty(env=env_name)
         self.test_loader = test_loader
+        self.viz = None
         self.normalize_inverse = None
         if self.test_loader is not None:
             self.normalize_inverse = get_normalize_inverse(self.test_loader.dataset.transform)
@@ -129,6 +128,17 @@ class Monitor(object):
         self.param_records = ParamsDict()
         self.mutual_info = MutualInfoKMeans(estimate_size=int(1e3), compression_range=(0.5, 0.999))
         self.functions = []
+
+    @property
+    def is_active(self):
+        return self.viz is not None
+
+    def open(self, env_name: str):
+        """
+        :param env_name: Visdom environment name
+        """
+        self.viz = VisdomMighty(env=env_name)
+        self.viz.prepare()
         self.log_self()
 
     def log_model(self, model: nn.Module, space='-'):
@@ -145,6 +155,7 @@ class Monitor(object):
         self.log(f"FULL_FORWARD_PASS_SIZE: {os.environ.get('FULL_FORWARD_PASS_SIZE', '(all samples)')}")
         self.log(f"BATCH_SIZE: {os.environ.get('BATCH_SIZE', '(default)')}")
         self.log(f"Batches in epoch: {self.timer.batches_in_epoch}")
+        self.log(f"Start epoch: {self.timer.epoch}")
         commit = subprocess.run(['git', 'rev-parse', 'HEAD'], stdout=subprocess.PIPE, universal_newlines=True)
         self.log(f"Git commit: {commit.stdout}")
 
@@ -175,7 +186,8 @@ class Monitor(object):
         ), name=mode)
 
     def clear(self):
-        self.viz.clear()
+        self.viz.close()
+        self.viz.prepare()
 
     def register_func(self, *func: Callable):
         self.functions.extend(func)
@@ -297,9 +309,9 @@ class Monitor(object):
         for monitored_function in self.functions:
             monitored_function(self.viz)
         # statistics below require monitored parameters
-        # self.param_records.plot_sign_flips(self.viz)
+        self.param_records.plot_sign_flips(self.viz)
         # self.update_gradient_mean_std()
-        self.update_initial_difference()
+        # self.update_initial_difference()
         self.update_grad_norm()
         self.update_sparsity(outputs_full)
         self.activations_heatmap(outputs_full, labels_full)

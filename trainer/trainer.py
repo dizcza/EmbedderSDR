@@ -1,4 +1,3 @@
-import os
 import time
 import warnings
 from abc import ABC, abstractmethod
@@ -13,7 +12,6 @@ from loss import ContrastiveLoss
 from monitor.accuracy import get_outputs, AccuracyEmbedding, AccuracyArgmax
 from monitor.batch_timer import timer
 from monitor.monitor import Monitor
-from trainer.checkpoint import Checkpoint
 from trainer.mask import MaskTrainer
 from utils.common import get_data_loader, AdversarialExamples
 from utils.constants import CHECKPOINTS_DIR
@@ -24,48 +22,31 @@ from utils.prepare import prepare_eval
 class Trainer(ABC):
     watch_modules = (nn.Linear, nn.Conv2d)
 
-    def __init__(self, model: nn.Module, criterion: nn.Module, dataset_name: str, restore=True, env_suffix=''):
+    def __init__(self, model: nn.Module, criterion: nn.Module, dataset_name: str, env_suffix=''):
         self.model = model
         self.criterion = criterion
         self.dataset_name = dataset_name
         self.train_loader = get_data_loader(dataset_name, train=True)
         self.timer = timer
         self.timer.init(batches_in_epoch=len(self.train_loader))
+        self.env_name = f"{time.strftime('%Y.%m.%d')} {self.model.__class__.__name__}: " \
+                        f"{self.dataset_name} {self.__class__.__name__}"
+        if env_suffix:
+            self.env_name = self.env_name + f' {env_suffix}'
         if isinstance(self.criterion, ContrastiveLoss):
             self.accuracy_measure = AccuracyEmbedding()
         else:
             self.accuracy_measure = AccuracyArgmax()
-
-        # restoring previous training
-        self.checkpoint = Checkpoint(checkpoint_dir=CHECKPOINTS_DIR / os.path.sep.join(self.env_pieces))
-        restored = False
-        if restore:
-            restored = self.checkpoint.restore(self.model)
-        self.timer.set_epoch(self.checkpoint.epoch)
-        if self.checkpoint.env_name is None:
-            env_name = self.env_name
-            if env_suffix:
-                env_name += f" {env_suffix}"
-            self.checkpoint.env_name = env_name
         self.monitor = Monitor(test_loader=get_data_loader(self.dataset_name, train=False),
-                               accuracy_measure=self.accuracy_measure,
-                               env_name=self.checkpoint.env_name)
-        if not restored:
-            self.monitor.clear()
-
+                               accuracy_measure=self.accuracy_measure)
         for name, layer in find_named_layers(self.model, layer_class=self.watch_modules):
             self.monitor.register_layer(layer, prefix=name)
         images, labels = next(iter(self.train_loader))
         self.mask_trainer = MaskTrainer(accuracy_measure=self.accuracy_measure, image_shape=images[0].shape)
 
     @property
-    def env_pieces(self):
-        return self.model.__class__.__name__, self.dataset_name, self.__class__.__name__
-
-    @property
-    def env_name(self) -> str:
-        env_name = f"{time.strftime('%Y.%m.%d')} " + ' '.join(self.env_pieces)
-        return env_name
+    def checkpoint_path(self):
+        return CHECKPOINTS_DIR / (self.env_name + '.pt')
 
     def monitor_functions(self):
         pass
@@ -78,10 +59,38 @@ class Trainer(ABC):
     def train_batch(self, images, labels):
         raise NotImplementedError()
 
+    def save(self):
+        self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(self.state_dict(), self.checkpoint_path)
+
+    def state_dict(self):
+        return {
+            "model_state": self.model.state_dict(),
+            "epoch": self.timer.epoch,
+            "env_name": self.env_name,
+        }
+
+    def restore(self, checkpoint_path=None):
+        if checkpoint_path is None:
+            checkpoint_path = self.checkpoint_path
+        if not checkpoint_path.exists():
+            print(f"Checkpoint '{checkpoint_path}' doesn't exist. Nothing to restore.")
+            return None
+        checkpoint_state = torch.load(checkpoint_path)
+        try:
+            self.model.load_state_dict(checkpoint_state['model_state'])
+        except RuntimeError as error:
+            print(f"Error is occurred while restoring {checkpoint_path}: {error}")
+            return None
+        self.env_name = checkpoint_state['env_name']
+        self.timer.set_epoch(checkpoint_state['epoch'])
+        print(f"Restored model state from {checkpoint_path}.")
+        return checkpoint_state
+
     def _epoch_finished(self, epoch, outputs, labels):
         loss = self.criterion(outputs, labels)
         self.monitor.update_loss(loss, mode='full train')
-        self.checkpoint.epoch_finished(model=self.model, loss=loss, epoch=epoch)
+        self.save()
         return loss
 
     def train_mask(self):
@@ -165,6 +174,7 @@ class Trainer(ABC):
         :param mask_explain: train the image mask that 'explains' network behaviour?
         """
         print(self.model)
+        self.monitor.open(env_name=self.env_name)
         self.monitor_functions()
         self.monitor.log_model(self.model)
         self.log_trainer()

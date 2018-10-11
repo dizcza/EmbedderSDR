@@ -19,12 +19,13 @@ class VisdomMighty(visdom.Visdom):
         self.timer = timer
         self.legends = defaultdict(list)
 
-    def clear(self):
-        self.close()
+    def prepare(self):
         self.register_plot(win='Loss', legend=['batch', 'full train'])
         self.register_plot(win='Accuracy', legend=['full train', 'full test'])
 
     def register_plot(self, win: str, legend: Iterable[str]):
+        if self.win_exists(win):
+            return
         legend = list(legend)
         self.legends[win] = legend
         nan = np.full(shape=(1, len(legend)), fill_value=np.nan)

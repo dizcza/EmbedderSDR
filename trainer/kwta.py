@@ -19,6 +19,8 @@ class KWTAScheduler:
     def __init__(self, model: nn.Module, step_size: int, gamma_sparsity=0.5, min_sparsity=0.05,
                  gamma_hardness=2.0, max_hardness=10):
         self.kwta_layers = tuple(find_layers(model, layer_class=KWinnersTakeAll))
+        if not any(self.kwta_layers):
+            self.env_name = self.env_name + " (TrainerGrad)"
         self.step_size = step_size
         self.gamma_sparsity = gamma_sparsity
         self.min_sparsity = min_sparsity
@@ -60,7 +62,6 @@ class TrainerGradKWTA(TrainerGrad):
                  **kwargs):
         super().__init__(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
                          scheduler=scheduler, **kwargs)
-        kwta_scheduler.last_epoch_update = self.timer.epoch
         self.kwta_scheduler = kwta_scheduler
         self.mask_trainer_kwta = MaskTrainerIndex(image_shape=self.mask_trainer.image_shape)
 
@@ -137,13 +138,6 @@ class TrainerGradKWTA(TrainerGrad):
         super().log_trainer()
         self.monitor.log(f"KWTA scheduler: {self.kwta_scheduler}")
 
-    @property
-    def env_name(self) -> str:
-        env_name = super().env_name
-        if not any(find_layers(self.model, layer_class=KWinnersTakeAll)):
-            env_name += " (TrainerGrad)"
-        return env_name
-
     def _epoch_finished(self, epoch, outputs, labels):
         loss = super()._epoch_finished(epoch, outputs, labels)
         if self.kwta_scheduler is not None:
@@ -163,3 +157,8 @@ class TrainerGradKWTA(TrainerGrad):
                                    win_suffix=i)
         mode_saved.restore(self.model)
         return image, label
+
+    def restore(self, checkpoint_path=None):
+        checkpoint_state = super().restore(checkpoint_path)
+        self.kwta_scheduler.last_epoch_update = self.timer.epoch
+        return checkpoint_state

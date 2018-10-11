@@ -3,8 +3,8 @@ import torch.utils.data
 from torchvision import transforms, datasets
 from tqdm import tqdm
 
-from utils.constants import DATA_DIR
 from monitor.viz import VisdomMighty
+from utils.constants import DATA_DIR
 
 
 class VarianceOnline(object):
@@ -74,9 +74,6 @@ def visualize_mean_std(dataset_cls=datasets.MNIST):
     :param dataset_cls: class type of torch.utils.data.Dataset
     """
     viz = VisdomMighty(env="main")
-    import time
-    time.sleep(1)
-    viz.close()
     mean, std = dataset_mean_std(dataset_cls=dataset_cls)
     viz.heatmap(mean.mean(dim=0), win=f'{dataset_cls.__name__} mean', opts=dict(
         title=f'{dataset_cls.__name__} Mean',
