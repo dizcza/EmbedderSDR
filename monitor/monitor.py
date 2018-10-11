@@ -22,7 +22,6 @@ class ParamRecord(object):
     def __init__(self, param: nn.Parameter):
         self.param = param
         self.is_monitored = False
-        self.variance = None
         self.grad_variance = None
         self.prev_sign = None
         self.initial_data = None
@@ -32,35 +31,15 @@ class ParamRecord(object):
         self.is_monitored = mode
         if self.is_monitored:
             data_cpu = self.param.data.cpu()
-            self.variance = VarianceOnline(tensor=data_cpu)
             self.grad_variance = VarianceOnline()
             self.prev_sign = data_cpu.clone()  # clone is faster
             self.initial_data = data_cpu.clone()
             self.initial_norm = self.initial_data.norm(p=2)
         else:
-            self.variance = None
             self.grad_variance = None
             self.prev_sign = None
             self.initial_data = None
             self.initial_norm = None
-
-    def tstat(self) -> torch.FloatTensor:
-        """
-        :return: t-statistics of the parameters history
-        """
-        assert self.is_monitored, "Parameter is not monitored!"
-        mean, std = self.variance.get_mean_std()
-        tstat = mean.abs() / std
-        isnan = std == 0
-        if isnan.all():
-            tstat.fill_(0)
-        else:
-            tstat_nonnan = tstat[~isnan]
-            tstat_max = tstat_nonnan.mean() + 2 * tstat_nonnan.std()
-            tstat_nonnan.clamp_(max=tstat_max)
-            tstat[~isnan] = tstat_nonnan
-            tstat[isnan] = tstat_max
-        return tstat
 
 
 class ParamsDict(UserDict):
@@ -78,7 +57,6 @@ class ParamsDict(UserDict):
                 new_data = new_data.clone()
             self.sign_flips += torch.sum((new_data * param_record.prev_sign) < 0)
             param_record.prev_sign = new_data
-            param_record.variance.update(new_data)
 
     def plot_sign_flips(self, viz: VisdomMighty):
         if self.count_monitored() == 0:
@@ -315,7 +293,6 @@ class Monitor(object):
         self.update_grad_norm()
         self.update_sparsity(outputs_full)
         self.activations_heatmap(outputs_full, labels_full)
-        # self.update_heatmap_history(model, by_dim=False)
 
     def register_layer(self, layer: nn.Module, prefix: str):
         self.mutual_info.register(layer, name=prefix)
@@ -361,42 +338,6 @@ class Monitor(object):
                 title='Gradient norm',
                 legend=legend,
             ))
-
-    def update_heatmap_history(self, model: nn.Module, by_dim=False):
-        """
-        :param model: current model
-        :param by_dim: use hitmap_by_dim for the last layer's weights
-        """
-
-        def heatmap(tensor: torch.FloatTensor, win: str):
-            while tensor.dim() > 2:
-                tensor = tensor.mean(dim=0)
-            opts = dict(
-                colormap='Jet',
-                title=win,
-                xlabel='input dimension',
-                ylabel='output dimension',
-            )
-            if tensor.shape[0] <= self.n_classes_format_ytickstep_1:
-                opts.update(ytickstep=1)
-            self.viz.heatmap(X=tensor, win=win, opts=opts)
-
-        def heatmap_by_dim(tensor: torch.FloatTensor, win: str):
-            for dim, x_dim in enumerate(tensor):
-                factors = factors_root(x_dim.shape[0])
-                x_dim = x_dim.view(factors)
-                heatmap(x_dim, win=f'{win}: dim {dim}')
-
-        names_backward = list(name for name, _ in model.named_parameters())[::-1]
-        name_last = None
-        for name in names_backward:
-            if name in self.param_records:
-                name_last = name
-                break
-
-        for name, param_record in self.param_records.items_monitored():
-            heatmap_func = heatmap_by_dim if by_dim and name == name_last else heatmap
-            heatmap_func(tensor=param_record.tstat(), win=f'Heatmap {name} t-statistics')
 
     def set_watch_mode(self, mode=False):
         for param_record in self.param_records.values():
