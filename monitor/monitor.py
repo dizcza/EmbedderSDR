@@ -14,32 +14,18 @@ from monitor.batch_timer import timer, ScheduleStep
 from monitor.mutual_info import MutualInfoKMeans
 from monitor.var_online import VarianceOnline
 from monitor.viz import VisdomMighty
+from utils.common import AdversarialExamples
 from utils.normalize import get_normalize_inverse
-from utils.common import factors_root, AdversarialExamples
 
 
 class ParamRecord(object):
     def __init__(self, param: nn.Parameter):
         self.param = param
         self.is_monitored = False
-        self.grad_variance = None
+        self.grad_variance = VarianceOnline()
         self.prev_sign = None
         self.initial_data = None
-        self.initial_norm = None
-
-    def set_watch_mode(self, mode: bool):
-        self.is_monitored = mode
-        if self.is_monitored:
-            data_cpu = self.param.data.cpu()
-            self.grad_variance = VarianceOnline()
-            self.prev_sign = data_cpu.clone()  # clone is faster
-            self.initial_data = data_cpu.clone()
-            self.initial_norm = self.initial_data.norm(p=2)
-        else:
-            self.grad_variance = None
-            self.prev_sign = None
-            self.initial_data = None
-            self.initial_norm = None
+        self.initial_norm = param.data.norm(p=2).item()
 
 
 class ParamsDict(UserDict):
@@ -50,18 +36,17 @@ class ParamsDict(UserDict):
 
     def batch_finished(self):
         self.n_updates += 1
-        for param_record in self.values_monitored():
+        for param_record in filter(lambda precord: precord.prev_sign is not None, self.values()):
             param = param_record.param
             new_data = param.data.cpu()
             if new_data is param.data:
                 new_data = new_data.clone()
-            self.sign_flips += torch.sum((new_data * param_record.prev_sign) < 0)
+            self.sign_flips += (new_data * param_record.prev_sign < 0).sum().item()
             param_record.prev_sign = new_data
 
     def plot_sign_flips(self, viz: VisdomMighty):
-        if self.count_monitored() == 0:
-            # haven't registered any monitored params yet
-            return
+        for param_record in filter(lambda precord: precord.prev_sign is None, self.values()):
+            param_record.prev_sign = param_record.param.data.cpu().clone()
         viz.line_update(y=self.sign_flips / self.n_updates, opts=dict(
             xlabel='Epoch',
             ylabel='Sign flips',
@@ -69,23 +54,6 @@ class ParamsDict(UserDict):
         ))
         self.sign_flips = 0
         self.n_updates = 0
-
-    def items_monitored(self):
-        def pass_monitored(pair):
-            name, param_record = pair
-            return param_record.is_monitored
-
-        return filter(pass_monitored, self.items())
-
-    def items_monitored_dict(self):
-        return {name: param for name, param in self.items_monitored()}
-
-    def values_monitored(self):
-        for name, param_record in self.items_monitored():
-            yield param_record
-
-    def count_monitored(self):
-        return len(list(self.values_monitored()))
 
 
 class Monitor(object):
@@ -100,6 +68,7 @@ class Monitor(object):
         self.test_loader = test_loader
         self.viz = None
         self.normalize_inverse = None
+        self.advanced_monitoring = False  # memory consuming
         if self.test_loader is not None:
             self.normalize_inverse = get_normalize_inverse(self.test_loader.dataset.transform)
         self.accuracy_measure = accuracy_measure
@@ -187,13 +156,13 @@ class Monitor(object):
                 ))
 
     def update_gradient_mean_std(self):
-        for name, param_record in self.param_records.items_monitored():
+        for name, param_record in self.param_records.items():
             param = param_record.param
             if param.grad is None:
                 continue
             param_record.grad_variance.update(param.grad.data.cpu())
             mean, std = param_record.grad_variance.get_mean_std()
-            param_norm = param.data.norm(p=2)
+            param_norm = param.data.norm(p=2).item()
             mean = mean.norm(p=2) / param_norm
             std = std.mean() / param_norm
             self.viz.line_update(y=[mean, std], opts=dict(
@@ -286,13 +255,13 @@ class Monitor(object):
         self.mutual_info.plot(self.viz)
         for monitored_function in self.functions:
             monitored_function(self.viz)
-        # statistics below require monitored parameters
-        self.param_records.plot_sign_flips(self.viz)
-        # self.update_gradient_mean_std()
-        # self.update_initial_difference()
         self.update_grad_norm()
         self.update_sparsity(outputs_full)
         self.activations_heatmap(outputs_full, labels_full)
+        if self.advanced_monitoring:
+            self.param_records.plot_sign_flips(self.viz)
+            self.update_gradient_mean_std()
+            self.update_initial_difference()
 
     def register_layer(self, layer: nn.Module, prefix: str):
         self.mutual_info.register(layer, name=prefix)
@@ -311,8 +280,10 @@ class Monitor(object):
     def update_initial_difference(self):
         legend = []
         dp_normed = []
-        for name, param_record in self.param_records.items_monitored():
+        for name, param_record in self.param_records.items():
             legend.append(name)
+            if param_record.initial_data is None:
+                param_record.initial_data = param_record.param.data.cpu().clone()
             dp = param_record.param.data.cpu() - param_record.initial_data
             dp = dp.norm(p=2) / param_record.initial_norm
             dp_normed.append(dp)
@@ -326,7 +297,7 @@ class Monitor(object):
     def update_grad_norm(self):
         grad_norms = []
         legend = []
-        for name, param_record in self.param_records.items_monitored():
+        for name, param_record in self.param_records.items():
             grad = param_record.param.grad
             if grad is not None:
                 grad_norms.append(grad.norm(p=2).cpu())
@@ -338,10 +309,6 @@ class Monitor(object):
                 title='Gradient norm',
                 legend=legend,
             ))
-
-    def set_watch_mode(self, mode=False):
-        for param_record in self.param_records.values():
-            param_record.set_watch_mode(mode)
 
     def activations_heatmap(self, outputs: torch.Tensor, labels: torch.Tensor):
         """

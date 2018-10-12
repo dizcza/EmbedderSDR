@@ -40,7 +40,8 @@ def train_mask():
     transform = torchvision.transforms.Compose([torchvision.transforms.Resize(size=(224, 224)),
                                                 torchvision.transforms.ToTensor(), normalize])
     accuracy_measure = AccuracyArgmax()
-    monitor = Monitor(test_loader=None, accuracy_measure=accuracy_measure, env_name='mask')
+    monitor = Monitor(test_loader=None, accuracy_measure=accuracy_measure)
+    monitor.open(env_name='mask')
     monitor.normalize_inverse = NormalizeInverse(mean=normalize.mean, std=normalize.std)
     image = Image.open(IMAGES_DIR / "flute.jpg")
     image = transform(image)
@@ -62,10 +63,12 @@ def train_grad(n_epoch=500, dataset_name="CIFAR10_56"):
     criterion = nn.CrossEntropyLoss()
     trainer = TrainerGrad(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
                           scheduler=scheduler)
-    trainer.train(n_epoch=n_epoch, epoch_update_step=1, watch_parameters=True, mutual_info_layers=1)
+    trainer.restore()
+    trainer.monitor.advanced_monitoring = True
+    trainer.train(n_epoch=n_epoch, epoch_update_step=1, mutual_info_layers=1)
 
 
-def train_kwta(n_epoch=500, dataset_name="CIFAR10_56"):
+def train_kwta(n_epoch=500, dataset_name="CIFAR10"):
     kwta = KWinnersTakeAllSoft(sparsity=0.3, connect_lateral=False)
     # kwta = SynapticScaling(kwta, synaptic_scale=3)
     model = EmbedderSDR(last_layer=kwta, dataset_name=dataset_name)
@@ -75,7 +78,9 @@ def train_kwta(n_epoch=500, dataset_name="CIFAR10_56"):
                                    gamma_hardness=2, max_hardness=10)
     trainer = TrainerGradKWTA(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
                               scheduler=scheduler, kwta_scheduler=kwta_scheduler, env_suffix='')
-    trainer.train(n_epoch=n_epoch, epoch_update_step=1, watch_parameters=True, mutual_info_layers=1, mask_explain=True)
+    trainer.restore()
+    trainer.monitor.advanced_monitoring = True
+    trainer.train(n_epoch=n_epoch, epoch_update_step=1, mutual_info_layers=1, mask_explain=True)
 
 
 def test(n_epoch=500, dataset_name="CIFAR10"):
@@ -85,8 +90,7 @@ def test(n_epoch=500, dataset_name="CIFAR10"):
         param.requires_grad_(False)
     criterion = nn.CrossEntropyLoss()
     trainer = Test(model=model, criterion=criterion, dataset_name=dataset_name)
-    trainer.train(n_epoch=n_epoch, epoch_update_step=1, watch_parameters=True, mutual_info_layers=1, adversarial=True,
-                  mask_explain=True)
+    trainer.train(n_epoch=n_epoch, epoch_update_step=1, mutual_info_layers=1, adversarial=True, mask_explain=True)
 
 
 def train_pretrained(n_epoch=500, dataset_name="CIFAR10"):
@@ -101,7 +105,7 @@ def train_pretrained(n_epoch=500, dataset_name="CIFAR10"):
                                    gamma_hardness=2, max_hardness=10)
     trainer = TrainerGradKWTA(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
                               scheduler=scheduler, kwta_scheduler=kwta_scheduler)
-    trainer.train(n_epoch=n_epoch, epoch_update_step=1, watch_parameters=True, mutual_info_layers=1, mask_explain=True)
+    trainer.train(n_epoch=n_epoch, epoch_update_step=1, mutual_info_layers=1, mask_explain=True)
 
 
 def train_caltech(n_epoch=500, dataset_name="Caltech256"):
@@ -121,13 +125,13 @@ def train_caltech(n_epoch=500, dataset_name="Caltech256"):
         optimizer, scheduler = get_optimizer_scheduler(model)
         trainer = TrainerGrad(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
                               scheduler=scheduler)
-    trainer.train(n_epoch=n_epoch, epoch_update_step=1, watch_parameters=True, mutual_info_layers=0, mask_explain=False)
+    trainer.train(n_epoch=n_epoch, epoch_update_step=1, mutual_info_layers=0, mask_explain=False)
 
 
 if __name__ == '__main__':
     set_seed(26)
     torch.backends.cudnn.benchmark = True
-    # train_kwta()
+    train_kwta()
     # train_mask()
     # train_grad()
     # test()

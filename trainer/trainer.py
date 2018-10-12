@@ -163,12 +163,10 @@ class Trainer(ABC):
 
         return loss
 
-    def train(self, n_epoch=10, epoch_update_step=1, watch_parameters=False,
-              mutual_info_layers=1, adversarial=False, mask_explain=False):
+    def train(self, n_epoch=10, epoch_update_step=1, mutual_info_layers=1, adversarial=False, mask_explain=False):
         """
         :param n_epoch: number of training epochs
         :param epoch_update_step: epoch step to run full evaluation
-        :param watch_parameters: turn on/off excessive parameters monitoring
         :param mutual_info_layers: number of last layers to be monitored for mutual information;
                                    pass '0' to turn off this feature.
         :param adversarial: perform adversarial attack test?
@@ -198,7 +196,6 @@ class Trainer(ABC):
         if mutual_info_layers > 0:
             get_outputs_eval = self.monitor.mutual_info.decorate_evaluation(get_outputs_eval)
             self.monitor.mutual_info.prepare(eval_loader, model=self.model, monitor_layers_count=mutual_info_layers)
-        self.monitor.set_watch_mode(watch_parameters)
 
         for epoch in range(self.timer.epoch, self.timer.epoch + n_epoch):
             loss_batch = self.train_epoch(epoch=epoch)
