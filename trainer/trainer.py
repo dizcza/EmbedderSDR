@@ -183,6 +183,7 @@ class Trainer(ABC):
             self.monitor.clear()
         self.monitor_functions()
         self.monitor.log_model(self.model)
+        self.monitor.log_self()
         self.log_trainer()
         use_cuda = torch.cuda.is_available()
         if use_cuda:

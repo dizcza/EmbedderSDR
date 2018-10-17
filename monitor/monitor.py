@@ -86,7 +86,6 @@ class Monitor(object):
         """
         self.viz = VisdomMighty(env=env_name)
         self.viz.prepare()
-        self.log_self()
 
     def log_model(self, model: nn.Module, space='-'):
         lines = []
