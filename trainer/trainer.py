@@ -70,7 +70,11 @@ class Trainer(ABC):
             "env_name": self.env_name,
         }
 
-    def restore(self, checkpoint_path=None):
+    def restore(self, checkpoint_path=None, strict=True):
+        """
+        :param checkpoint_path: train checkpoint path to restore
+        :param strict: model's load_state_dict strict argument
+        """
         if checkpoint_path is None:
             checkpoint_path = self.checkpoint_path
         if not checkpoint_path.exists():
@@ -78,7 +82,7 @@ class Trainer(ABC):
             return None
         checkpoint_state = torch.load(checkpoint_path)
         try:
-            self.model.load_state_dict(checkpoint_state['model_state'])
+            self.model.load_state_dict(checkpoint_state['model_state'], strict=strict)
         except RuntimeError as error:
             print(f"Error is occurred while restoring {checkpoint_path}: {error}")
             return None
