@@ -7,38 +7,63 @@ from monitor.viz import VisdomMighty
 from utils.constants import DATA_DIR
 
 
-class VarianceOnline(object):
-
+class MeanOnline:
     """
-    Online updating sample mean and unbiased variance in a single pass.
+    Online updating sample mean.
     """
 
-    def __init__(self, tensor: torch.FloatTensor = None):
+    def __init__(self, tensor=None):
         self.mean = None
-        self.var = None
         self.count = 0
         if tensor is not None:
             self.update(new_tensor=tensor)
 
-    def update(self, new_tensor: torch.FloatTensor):
+    def update(self, new_tensor):
         self.count += 1
         if self.mean is None:
             self.mean = new_tensor.clone()
-            self.var = torch.zeros_like(self.mean)
         else:
-            self.var = (self.count - 2) / (self.count - 1) * self.var + torch.pow(new_tensor - self.mean, 2) / self.count
             self.mean += (new_tensor - self.mean) / self.count
 
-    def get_mean_std(self):
+    def get_mean(self):
         if self.mean is None:
-            return None, None
+            return None
         else:
-            return self.mean.clone(), torch.sqrt(self.var)
+            return self.mean.clone()
 
     def reset(self):
         self.mean = None
-        self.var = None
         self.count = 0
+
+
+class VarianceOnline(MeanOnline):
+    """
+    Online updating sample mean and unbiased variance in a single pass.
+    """
+
+    def __init__(self, tensor=None):
+        self.var = None
+        super().__init__(tensor)
+
+    def update(self, new_tensor):
+        super().update(new_tensor)
+        if self.var is None:
+            self.var = torch.zeros_like(self.mean)
+        else:
+            self.var = (self.count - 2) / (self.count - 1) * self.var + torch.pow(new_tensor - self.mean, 2) / self.count
+
+    def get_std(self):
+        if self.var is None:
+            return None
+        else:
+            return torch.sqrt(self.var)
+
+    def get_mean_std(self):
+        return self.get_mean(), self.get_std()
+
+    def reset(self):
+        super().reset()
+        self.var = None
 
 
 def dataset_mean_std_file(dataset_cls: type):

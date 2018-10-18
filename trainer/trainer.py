@@ -12,6 +12,7 @@ from loss import ContrastiveLoss
 from monitor.accuracy import get_outputs, AccuracyEmbedding, AccuracyArgmax
 from monitor.batch_timer import timer
 from monitor.monitor import Monitor
+from monitor.var_online import MeanOnline
 from trainer.mask import MaskTrainer
 from utils.common import get_data_loader, AdversarialExamples
 from utils.constants import CHECKPOINTS_DIR
@@ -146,7 +147,7 @@ class Trainer(ABC):
         :param epoch: epoch id
         :return: last batch loss
         """
-        loss = None
+        loss_batch_average = MeanOnline()
         use_cuda = torch.cuda.is_available()
         for images, labels in tqdm(self.train_loader,
                                    desc="Epoch {:d}".format(epoch),
@@ -156,6 +157,7 @@ class Trainer(ABC):
                 labels = labels.cuda()
 
             outputs, loss = self.train_batch(images, labels)
+            loss_batch_average.update(loss.detach().cpu())
             for name, param in self.model.named_parameters():
                 if torch.isnan(param).any():
                     warnings.warn(f"NaN parameters in '{name}'")
@@ -165,7 +167,7 @@ class Trainer(ABC):
             # self.monitor.activations_heatmap(outputs, labels)
             # self.monitor.update_loss(loss=loss.item(), mode='batch')
 
-        return loss
+        return loss_batch_average.get_mean()
 
     def train(self, n_epoch=10, epoch_update_step=1, mutual_info_layers=1, adversarial=False, mask_explain=False):
         """
@@ -203,9 +205,9 @@ class Trainer(ABC):
             self.monitor.mutual_info.prepare(eval_loader, model=self.model, monitor_layers_count=mutual_info_layers)
 
         for epoch in range(self.timer.epoch, self.timer.epoch + n_epoch):
-            loss_batch = self.train_epoch(epoch=epoch)
+            loss_batch_average = self.train_epoch(epoch=epoch)
             if epoch % epoch_update_step == 0:
-                self.monitor.update_loss(loss=loss_batch, mode='batch')
+                self.monitor.update_loss(loss=loss_batch_average, mode='batch')
                 outputs_full, labels_full = get_outputs_eval(self.model)
                 self.accuracy_measure.save(outputs_train=outputs_full, labels_train=labels_full)
                 self.monitor.epoch_finished(self.model, outputs_full, labels_full)
