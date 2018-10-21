@@ -57,7 +57,7 @@ def train_mask():
     monitor.plot_mask(model=model, mask_trainer=mask_trainer, image=image, label=label_true)
 
 
-def train_grad(n_epoch=500, dataset_name="CIFAR10_56"):
+def train_grad(n_epoch=500, dataset_name="CIFAR10"):
     model = EmbedderSDR(last_layer=nn.Linear(128, 2), dataset_name=dataset_name)
     optimizer, scheduler = get_optimizer_scheduler(model)
     criterion = nn.CrossEntropyLoss()
@@ -69,7 +69,7 @@ def train_grad(n_epoch=500, dataset_name="CIFAR10_56"):
 
 
 def train_kwta(n_epoch=500, dataset_name="CIFAR10"):
-    kwta = KWinnersTakeAllSoft(sparsity=0.3, connect_lateral=False)
+    kwta = KWinnersTakeAllSoft(sparsity=0.3)
     # kwta = SynapticScaling(kwta, synaptic_scale=3)
     model = EmbedderSDR(last_layer=kwta, dataset_name=dataset_name)
     optimizer, scheduler = get_optimizer_scheduler(model)
@@ -78,9 +78,9 @@ def train_kwta(n_epoch=500, dataset_name="CIFAR10"):
                                    gamma_hardness=2, max_hardness=10)
     trainer = TrainerGradKWTA(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
                               scheduler=scheduler, kwta_scheduler=kwta_scheduler, env_suffix='')
-    trainer.restore()
-    trainer.monitor.advanced_monitoring = True
-    trainer.train(n_epoch=n_epoch, epoch_update_step=1, mutual_info_layers=1, mask_explain=True)
+    # trainer.restore()
+    # trainer.monitor.advanced_monitoring = True
+    trainer.train(n_epoch=n_epoch, epoch_update_step=1, mutual_info_layers=1, mask_explain=False)
 
 
 def test(n_epoch=500, dataset_name="CIFAR10"):
@@ -97,7 +97,7 @@ def train_pretrained(n_epoch=500, dataset_name="CIFAR10"):
     model = models.cifar.CIFAR10(pretrained=True)
     for param in model.parameters():
         param.requires_grad_(False)
-    kwta = KWinnersTakeAllSoft(sparsity=0.3, connect_lateral=False)
+    kwta = KWinnersTakeAllSoft(sparsity=0.3)
     model.classifier = nn.Sequential(nn.Linear(1024, 128, bias=False), kwta)
     optimizer, scheduler = get_optimizer_scheduler(model)
     criterion = ContrastiveLossBatch(metric='cosine')
@@ -110,7 +110,7 @@ def train_pretrained(n_epoch=500, dataset_name="CIFAR10"):
 
 def train_caltech(n_epoch=500, dataset_name="Caltech256"):
     kwta = None
-    kwta = KWinnersTakeAllSoft(sparsity=0.3, connect_lateral=False)
+    kwta = KWinnersTakeAllSoft(sparsity=0.3)
     model = models.caltech.squeezenet1_1(kwta=kwta)
     if kwta:
         criterion = ContrastiveLossBatch(metric='cosine', random_pairs=True)

@@ -34,7 +34,6 @@ class KWTAScheduler:
     def step(self, epoch: int):
         if self.need_update(epoch):
             for layer in self.kwta_layers:
-                layer.clear_lateral()
                 layer.sparsity = max(layer.sparsity * self.gamma_sparsity, self.min_sparsity)
                 if isinstance(layer, KWinnersTakeAllSoft):
                     layer.hardness = min(layer.hardness * self.gamma_hardness, self.max_hardness)
@@ -69,18 +68,6 @@ class TrainerGradKWTA(TrainerGrad):
         super().monitor_functions()
         kwta_named_layers = tuple(find_named_layers(self.model, layer_class=KWinnersTakeAll))
 
-        def lateral_weights(viz):
-            for name, layer in kwta_named_layers:
-                if layer.weight_lateral is not None:
-                    title = f"kWTA {name}.lateral_weights"
-                    viz.heatmap(layer.weight_lateral, win=title, opts=dict(
-                        xlabel='Neuron id',
-                        ylabel='Neuron id',
-                        title=title,
-                    ))
-
-        self.monitor.register_func(lateral_weights)
-
         if self.kwta_scheduler is not None:
             kwta_named_layers_soft = tuple(find_named_layers(self.model, layer_class=KWinnersTakeAllSoft))
 
@@ -113,26 +100,6 @@ class TrainerGradKWTA(TrainerGrad):
                 ))
 
             self.monitor.register_func(sparsity, hardness)
-
-        synaptic_scale_named_layers = tuple(find_named_layers(self.model, SynapticScaling))
-        if len(synaptic_scale_named_layers) > 0:
-
-            def monitor_synaptic_scaling(viz):
-                rownames = []
-                frequency = []
-                for name, layer in synaptic_scale_named_layers:
-                    rownames.append(name)
-                    frequency.append(layer.frequency)
-                frequency = torch.stack(frequency, dim=0)
-                title = "Synaptic scaling plasticity"
-                viz.heatmap(frequency, win=title, opts=dict(
-                    xlabel="Embedding dimension",
-                    ylabel="Neuron fires frequency",
-                    title=title,
-                    rownames=rownames,
-                ))
-
-            self.monitor.register_func(monitor_synaptic_scaling)
 
     def log_trainer(self):
         super().log_trainer()
