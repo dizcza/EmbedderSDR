@@ -51,18 +51,20 @@ class ContrastiveLoss(nn.Module, ABC):
 
 class ContrastiveLossBatch(ContrastiveLoss):
 
-    def __init__(self, metric='cosine', eps=1e-7, random_pairs=False):
+    def __init__(self, metric='cosine', eps=1e-7, random_pairs=False, synaptic_scale=0):
         """
         :param metric: cosine, l2 or l1 metric to measure the distance between embeddings
         :param eps: threshold to skip negligible same-other loss
         :param random_pairs: select random pairs or use all pairwise combinations
+        :param synaptic_scale: synaptic scale constant loss factor to keep neurons activation rate same
         """
         super().__init__(metric=metric, eps=eps)
         self.random_pairs = random_pairs
+        self.synaptic_scale = synaptic_scale
 
     def extra_repr(self):
         old_repr = super().extra_repr()
-        return f'{old_repr}, random_pairs={self.random_pairs}'
+        return f'{old_repr}, random_pairs={self.random_pairs}, synaptic_scale={self.synaptic_scale}'
 
     def forward_random(self, outputs, labels):
         dist_same = []
@@ -129,6 +131,7 @@ class ContrastiveLossBatch(ContrastiveLoss):
             loss_other = dist_other.mean()
         else:
             loss_other = 0
-        loss = loss_same + loss_other
+        loss_frequency = (outputs.mean(dim=0) - outputs.mean()).std()
+        loss = loss_same + loss_other + self.synaptic_scale * loss_frequency
 
         return loss
