@@ -257,6 +257,7 @@ class Monitor(object):
         self.update_grad_norm()
         self.update_sparsity(outputs_full)
         self.activations_heatmap(outputs_full, labels_full)
+        self.firing_frequency(outputs_full)
         if self.advanced_monitoring:
             self.param_records.plot_sign_flips(self.viz)
             self.update_gradient_mean_std()
@@ -357,3 +358,12 @@ class Monitor(object):
     @ScheduleStep(epoch_step=20)
     def save_heatmap(self, heatmap, win, opts):
         self.viz.heatmap(heatmap, win=f"{win}. Epoch {self.timer.epoch}", opts=opts)
+
+    def firing_frequency(self, outputs):
+        frequency = outputs.detach().mean(dim=0)
+        frequency.unsqueeze_(dim=0)
+        title = 'Neuron firing frequency'
+        self.viz.heatmap(frequency, win=title, opts=dict(
+            title=title,
+            xlabel='Embedding dimension',
+        ))
