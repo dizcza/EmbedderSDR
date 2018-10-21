@@ -125,7 +125,7 @@ class TrainerGradKWTA(TrainerGrad):
         mode_saved.restore(self.model)
         return image, label
 
-    def restore(self, checkpoint_path=None):
-        checkpoint_state = super().restore(checkpoint_path)
+    def restore(self, checkpoint_path=None, strict=True):
+        checkpoint_state = super().restore(checkpoint_path=checkpoint_path, strict=strict)
         self.kwta_scheduler.last_epoch_update = self.timer.epoch
         return checkpoint_state

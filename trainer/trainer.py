@@ -81,7 +81,10 @@ class Trainer(ABC):
         if not checkpoint_path.exists():
             print(f"Checkpoint '{checkpoint_path}' doesn't exist. Nothing to restore.")
             return None
-        checkpoint_state = torch.load(checkpoint_path)
+        map_location = None
+        if not torch.cuda.is_available():
+            map_location = 'cpu'
+        checkpoint_state = torch.load(checkpoint_path, map_location=map_location)
         try:
             self.model.load_state_dict(checkpoint_state['model_state'], strict=strict)
         except RuntimeError as error:

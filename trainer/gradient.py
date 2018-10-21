@@ -62,8 +62,8 @@ class TrainerGrad(Trainer):
         state['optimizer'] = self.optimizer.state_dict()
         return state
 
-    def restore(self, checkpoint_path=None):
-        checkpoint_state = super().restore(checkpoint_path)
+    def restore(self, checkpoint_path=None, strict=True):
+        checkpoint_state = super().restore(checkpoint_path=checkpoint_path, strict=strict)
         try:
             if checkpoint_state is not None:
                 self.optimizer.load_state_dict(checkpoint_state['optimizer'])
