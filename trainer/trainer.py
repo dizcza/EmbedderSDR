@@ -9,7 +9,7 @@ import torch.utils.data
 from tqdm import tqdm
 
 from loss import ContrastiveLoss
-from monitor.accuracy import get_outputs, AccuracyEmbedding, AccuracyArgmax
+from monitor.accuracy import full_forward_pass, AccuracyEmbedding, AccuracyArgmax
 from monitor.batch_timer import timer
 from monitor.monitor import Monitor
 from monitor.var_online import MeanOnline
@@ -200,18 +200,18 @@ class Trainer(ABC):
                                                   shuffle=False,
                                                   num_workers=self.train_loader.num_workers)
 
-        get_outputs_eval = partial(get_outputs, loader=eval_loader)
-        update_wrapper(wrapper=get_outputs_eval, wrapped=get_outputs)
+        full_forward_pass_eval = partial(full_forward_pass, loader=eval_loader)
+        update_wrapper(wrapper=full_forward_pass_eval, wrapped=full_forward_pass)
 
         if mutual_info_layers > 0:
-            get_outputs_eval = self.monitor.mutual_info.decorate_evaluation(get_outputs_eval)
+            full_forward_pass_eval = self.monitor.mutual_info.decorate_evaluation(full_forward_pass_eval)
             self.monitor.mutual_info.prepare(eval_loader, model=self.model, monitor_layers_count=mutual_info_layers)
 
         for epoch in range(self.timer.epoch, self.timer.epoch + n_epoch):
             loss_batch_average = self.train_epoch(epoch=epoch)
             if epoch % epoch_update_step == 0:
                 self.monitor.update_loss(loss=loss_batch_average, mode='batch')
-                outputs_full, labels_full = get_outputs_eval(self.model)
+                outputs_full, labels_full = full_forward_pass_eval(self.model)
                 self.accuracy_measure.save(outputs_train=outputs_full, labels_train=labels_full)
                 self.monitor.epoch_finished(self.model, outputs_full, labels_full)
                 if adversarial:

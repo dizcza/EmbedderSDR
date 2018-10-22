@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.utils.data
 from sklearn.metrics import confusion_matrix, pairwise
 
-from monitor.accuracy import calc_accuracy, get_outputs, Accuracy
+from monitor.accuracy import calc_accuracy, full_forward_pass, Accuracy
 from monitor.batch_timer import timer, ScheduleStep
 from monitor.mutual_info import MutualInfoKMeans
 from monitor.var_online import VarianceOnline
@@ -186,7 +186,7 @@ class Monitor(object):
             ))
 
     def update_accuracy_epoch(self, model: nn.Module, outputs_train, labels_train):
-        outputs_test, labels_test = get_outputs(model, loader=self.test_loader)
+        outputs_test, labels_test = full_forward_pass(model, loader=self.test_loader)
         self.plot_accuracy_confusion_matrix(labels_true=labels_train,
                                             labels_predicted=self.accuracy_measure.predict(outputs_train),
                                             mode='full train')
@@ -366,4 +366,5 @@ class Monitor(object):
         self.viz.heatmap(frequency, win=title, opts=dict(
             title=title,
             xlabel='Embedding dimension',
+            rownames=['Last layer'],
         ))

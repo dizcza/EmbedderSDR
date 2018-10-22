@@ -86,8 +86,6 @@ class MutualInfoBin(ABC):
             outputs = get_outputs_old(*args, **kwargs)
             self.finish_listening()
             return outputs
-
-        print(f"Decorated '{get_outputs_old.__name__}' function to save layer activations for MI estimation")
         return get_outputs_wrapped
 
     def prepare(self, loader: torch.utils.data.DataLoader, model: nn.Module, monitor_layers_count=5):

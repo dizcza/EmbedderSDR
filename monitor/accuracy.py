@@ -21,7 +21,7 @@ def how_many_samples_take(loader: torch.utils.data.DataLoader):
     return n_samples_take
 
 
-def get_outputs(model: nn.Module, loader: torch.utils.data.DataLoader):
+def full_forward_pass(model: nn.Module, loader: torch.utils.data.DataLoader):
     n_samples_take = how_many_samples_take(loader)
     mode_saved = model.training
     model.train(False)
