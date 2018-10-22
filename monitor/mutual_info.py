@@ -13,7 +13,29 @@ from sklearn.metrics import mutual_info_score
 
 from monitor.batch_timer import ScheduleExp
 
-LayerForward = namedtuple("LayerForward", ("layer", "forward_orig"))
+
+class LayersOrder:
+    def __init__(self, model: nn.Module):
+        self.hooks = []
+        self.layers_ordered = []
+        self.register_hooks(model)
+
+    def register_hooks(self, model: nn.Module):
+        children = tuple(model.children())
+        if any(children):
+            for layer in children:
+                self.register_hooks(layer)
+        else:
+            handle = model.register_forward_pre_hook(self.append_layer)
+            self.hooks.append(handle)
+
+    def append_layer(self, layer, tensor_input):
+        self.layers_ordered.append(layer)
+
+    def get_layers_ordered(self):
+        for handle in self.hooks:
+            handle.remove()
+        return tuple(self.layers_ordered)
 
 
 class MutualInfoBin(ABC):
@@ -29,19 +51,18 @@ class MutualInfoBin(ABC):
         self.estimate_size = estimate_size
         self.compression_range = compression_range
         self.debug = debug
-        self.layers_order = []
         self.n_bins = {}
         self.compression = {}
         self.max_trials_adjust = 10
-        self.layers = {}
         self.activations = defaultdict(list)
         self.quantized = {}
         self.information = {}
         self.is_active = False
         self.eval_loader = None
+        self.layer_to_name = {}
 
     def register(self, layer: nn.Module, name: str):
-        self.layers[name] = LayerForward(layer, layer.forward)
+        self.layer_to_name[layer] = name
 
     @ScheduleExp()
     def force_update(self, model: nn.Module):
@@ -78,52 +99,44 @@ class MutualInfoBin(ABC):
             targets.append(labels)
             if len(inputs) * loader.batch_size >= self.estimate_size:
                 break
-        image_sample = inputs[0][0].unsqueeze_(dim=0)
         self.save_quantized(layer_name='input', activations=inputs)
         self.save_quantized(layer_name='target', activations=targets)
-        self.start_listening()
+
+        layers_order = LayersOrder(model)
+        image_sample = inputs[0][:1]
+        if torch.cuda.is_available():
+            image_sample = image_sample.cuda()
         with torch.no_grad():
-            if torch.cuda.is_available():
-                image_sample = image_sample.cuda()
             model(image_sample)
-        self.activations.clear()  # clear saved activations
-        self.finish_listening()
-        last_layer_names = self.layers_order[-monitor_layers_count:]
-        last_layers = {}
-        for name in last_layer_names:
-            last_layers[name] = self.layers[name]
-        self.layers = last_layers
-        print(f"Monitoring only these last layers for mutual information estimation: {last_layer_names}")
+
+        layers_ordered = layers_order.get_layers_ordered()
+        layers_ordered = list(layer for layer in layers_ordered if layer in self.layer_to_name)
+        layers_ordered = layers_ordered[-monitor_layers_count:]
+
+        for layer in layers_ordered:
+            layer.register_forward_hook(self.save_activations)
+
+        monitored_layer_names = list(self.layer_to_name[layer] for layer in layers_ordered)
+        print(f"Monitoring only these last layers for mutual information estimation: {monitored_layer_names}")
 
     def start_listening(self):
-        for name, (layer, forward_orig) in self.layers.items():
-            if layer.forward == forward_orig:
-                layer.forward = self._wrap_forward(layer_name=name, forward_orig=forward_orig)
+        self.activations.clear()
         self.is_active = True
 
     def finish_listening(self):
-        if not self.is_active:
-            return
-        for name, (layer, forward_orig) in self.layers.items():
-            layer.forward = forward_orig
         self.is_active = False
-        for hname in tuple(self.activations.keys()):
-            self.save_quantized(layer_name=hname, activations=self.activations[hname])
+        for hname, activations in self.activations.items():
+            self.save_quantized(layer_name=hname, activations=activations)
         self.save_mutual_info()
 
-    def _wrap_forward(self, layer_name, forward_orig):
-        def forward_and_save(input):
-            assert self.is_active, "Did you forget to call MutualInfo.start_listening()?"
-            output = forward_orig(input)
-            self.save_activations(layer_name, output)
-            return output
-
-        return forward_and_save
-
-    def save_activations(self, layer_name: str, tensor: torch.Tensor):
-        self.activations[layer_name].append(tensor.cpu().clone())
-        if layer_name not in self.layers_order:
-            self.layers_order.append(layer_name)
+    def save_activations(self, module: nn.Module, tensor_input, tensor_output):
+        if not self.is_active:
+            return
+        layer_name = self.layer_to_name[module]
+        tensor_output_clone = tensor_output.cpu()
+        if tensor_output_clone is tensor_output:
+            tensor_output_clone = tensor_output_clone.clone()
+        self.activations[layer_name].append(tensor_output_clone)
 
     def save_quantized(self, layer_name: str, activations: List[torch.FloatTensor]):
         activations = torch.cat(activations, dim=0)
