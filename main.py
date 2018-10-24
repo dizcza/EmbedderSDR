@@ -8,7 +8,7 @@ from PIL import Image
 
 import models.caltech
 import models.cifar
-from loss import ContrastiveLossBatch
+from loss import ContrastiveLossBatch, LossFixedPattern
 from models import *
 from monitor.accuracy import AccuracyArgmax
 from monitor.monitor import Monitor
@@ -69,18 +69,19 @@ def train_grad(n_epoch=500, dataset_name="CIFAR10"):
 
 
 def train_kwta(n_epoch=500, dataset_name="CIFAR10"):
-    kwta = KWinnersTakeAllSoft(sparsity=0.3)
-    # kwta = SynapticScaling(kwta, synaptic_scale=3)
+    kwta = KWinnersTakeAllSoft(sparsity=0.05)
+    kwta = SynapticScaling(kwta, synaptic_scale=3)
     model = EmbedderSDR(last_layer=kwta, dataset_name=dataset_name)
     optimizer, scheduler = get_optimizer_scheduler(model)
-    criterion = ContrastiveLossBatch(metric='cosine')
+    # criterion = ContrastiveLossBatch(metric='cosine', random_pairs=True, synaptic_scale=0.2)
+    criterion = LossFixedPattern(sparsity=kwta.sparsity)
     kwta_scheduler = KWTAScheduler(model=model, step_size=15, gamma_sparsity=0.5, min_sparsity=0.05,
                                    gamma_hardness=2, max_hardness=10)
     trainer = TrainerGradKWTA(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
                               scheduler=scheduler, kwta_scheduler=kwta_scheduler, env_suffix='')
     # trainer.restore()
     # trainer.monitor.advanced_monitoring = True
-    trainer.train(n_epoch=n_epoch, epoch_update_step=1, mutual_info_layers=1, mask_explain=False)
+    trainer.train(n_epoch=n_epoch, epoch_update_step=1, mutual_info_layers=0, mask_explain=False)
 
 
 def test(n_epoch=500, dataset_name="CIFAR10"):
@@ -105,7 +106,7 @@ def train_pretrained(n_epoch=500, dataset_name="CIFAR10"):
                                    gamma_hardness=2, max_hardness=10)
     trainer = TrainerGradKWTA(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
                               scheduler=scheduler, kwta_scheduler=kwta_scheduler)
-    trainer.train(n_epoch=n_epoch, epoch_update_step=1, mutual_info_layers=1, mask_explain=True)
+    trainer.train(n_epoch=n_epoch, epoch_update_step=1, mutual_info_layers=1, mask_explain=False)
 
 
 def train_caltech(n_epoch=500, dataset_name="Caltech256"):
@@ -136,4 +137,4 @@ if __name__ == '__main__':
     # train_grad()
     # test()
     # train_pretrained()
-    train_caltech()
+    # train_caltech()

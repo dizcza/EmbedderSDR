@@ -1,9 +1,11 @@
+import warnings
 from typing import Union, Optional
 
 import torch.nn as nn
 import torch.utils.data
 from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
 
+from loss import LossFixedPattern
 from models.kwta import KWinnersTakeAllSoft, KWinnersTakeAll, SynapticScaling
 from trainer.gradient import TrainerGrad
 from trainer.mask import MaskTrainerIndex
@@ -26,7 +28,7 @@ class KWTAScheduler:
         self.min_sparsity = min_sparsity
         self.gamma_hardness = gamma_hardness
         self.max_hardness = max_hardness
-        self.last_epoch_update = 0
+        self.last_epoch_update = -1
 
     def need_update(self, epoch: int):
         return epoch >= self.last_epoch_update + self.step_size
@@ -62,6 +64,10 @@ class TrainerGradKWTA(TrainerGrad):
         super().__init__(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
                          scheduler=scheduler, **kwargs)
         self.kwta_scheduler = kwta_scheduler
+        if self.kwta_scheduler is not None and isinstance(self.criterion, LossFixedPattern):
+            warnings.warn(f"{self.kwta_scheduler.__class__.__name__} is not recommended to use with "
+                          f"{self.criterion.__class__.__name__}. Make sure kWTA sparsity does not "
+                          f"change during the training.")
         self.mask_trainer_kwta = MaskTrainerIndex(image_shape=self.mask_trainer.image_shape)
 
     def monitor_functions(self):
@@ -101,6 +107,20 @@ class TrainerGradKWTA(TrainerGrad):
 
             self.monitor.register_func(sparsity, hardness)
 
+        if isinstance(self.criterion, LossFixedPattern):
+            def show_fixed_patterns(viz):
+                labels = sorted(self.criterion.patterns.keys())
+                patterns = [self.criterion.patterns[label] for label in labels]
+                patterns = torch.stack(patterns, dim=0).cpu()
+                title = 'Fixed target patterns'
+                viz.heatmap(patterns, win=title, opts=dict(
+                    xlabel='Embedding dimension',
+                    ylabel='Label',
+                    title=title,
+                ))
+
+            self.monitor.register_func(show_fixed_patterns)
+
     def log_trainer(self):
         super().log_trainer()
         self.monitor.log(f"KWTA scheduler: {self.kwta_scheduler}")
@@ -127,5 +147,5 @@ class TrainerGradKWTA(TrainerGrad):
 
     def restore(self, checkpoint_path=None, strict=True):
         checkpoint_state = super().restore(checkpoint_path=checkpoint_path, strict=strict)
-        self.kwta_scheduler.last_epoch_update = self.timer.epoch
+        self.kwta_scheduler.last_epoch_update = self.timer.epoch - 1
         return checkpoint_state

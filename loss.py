@@ -1,3 +1,4 @@
+import math
 from abc import ABC
 
 import numpy as np
@@ -35,18 +36,49 @@ class ContrastiveLoss(nn.Module, ABC):
     def extra_repr(self):
         return f'metric={self.metric}, margin={self.margin}'
 
-    def distance(self, input1, input2, is_same: bool):
+    def distance(self, input1, input2, is_same: bool, reduction='none'):
         if self.metric == 'cosine':
             targets = torch.ones(max(len(input1), len(input2)), device=input1.device)
             if not is_same:
                 targets *= -1
-            return F.cosine_embedding_loss(input1, input2, target=targets, margin=self.margin, reduction='none')
+            return F.cosine_embedding_loss(input1, input2, target=targets, margin=self.margin, reduction=reduction)
         else:
             dist = (input1 - input2).norm(p=self.power, dim=1)
             if not is_same:
                 zeros = torch.zeros_like(dist, device=dist.device)
                 dist = torch.max(zeros, self.margin - dist)
+            if reduction == 'elementwise_mean':
+                dist = dist.mean()
             return dist
+
+
+class LossFixedPattern(ContrastiveLoss):
+
+    def __init__(self, sparsity: float, metric='cosine', eps=1e-7):
+        super().__init__(metric=metric, eps=eps)
+        self.patterns = {}
+        self.sparsity = sparsity
+
+    def forward(self, outputs, labels):
+        nonzero = (outputs != 0).any(dim=1)
+        outputs = outputs[nonzero]
+        labels = labels[nonzero]
+        embedding_dim = outputs.shape[1]
+        n_active = math.ceil(self.sparsity * embedding_dim)
+        loss = 0
+        for label in labels.unique().tolist():
+            if label not in self.patterns:
+                code = torch.zeros(embedding_dim, device=outputs.device)
+                code[:n_active] = 1
+                code = code[torch.randperm(embedding_dim, device=code.device)]
+                self.patterns[label] = code
+            outputs_same_label = outputs[labels == label]
+            pattern = torch.as_tensor(self.patterns[label], device=outputs_same_label.device)
+            pattern = pattern.expand_as(outputs_same_label)
+            dist = self.distance(outputs_same_label, pattern, is_same=True, reduction='elementwise_mean')
+            loss = loss + dist
+
+        return loss
 
 
 class ContrastiveLossBatch(ContrastiveLoss):
