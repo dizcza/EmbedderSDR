@@ -1,6 +1,6 @@
 import math
 from abc import ABC, abstractmethod
-from collections import defaultdict, namedtuple
+from collections import defaultdict
 from functools import wraps
 from typing import Callable, List
 
@@ -12,6 +12,7 @@ from sklearn import cluster
 from sklearn.metrics import mutual_info_score
 
 from monitor.batch_timer import ScheduleExp
+from utils.constants import BATCH_SIZE
 
 
 class LayersOrder:
@@ -71,12 +72,10 @@ class MutualInfoBin(ABC):
         self.start_listening()
         use_cuda = torch.cuda.is_available()
         with torch.no_grad():
-            for batch_id, (images, labels) in enumerate(iter(self.eval_loader)):
+            for images, labels in self.eval_batches():
                 if use_cuda:
                     images = images.cuda()
                 model(images)  # outputs of each layer are saved implicitly
-                if batch_id * self.eval_loader.batch_size >= self.estimate_size:
-                    break
         self.finish_listening()
 
     def decorate_evaluation(self, get_outputs_old: Callable):
@@ -88,20 +87,30 @@ class MutualInfoBin(ABC):
             return outputs
         return get_outputs_wrapped
 
-    def prepare(self, loader: torch.utils.data.DataLoader, model: nn.Module, monitor_layers_count=5):
-        self.eval_loader = loader
+    def eval_batches(self):
+        n_samples = 0
+        for images, labels in iter(self.eval_loader):
+            if n_samples > self.estimate_size:
+                break
+            n_samples += len(labels)
+            yield images, labels
+
+    def prepare_input(self):
         inputs = []
         targets = []
-        for images, labels in iter(loader):
+        for images, labels in self.eval_batches():
             inputs.append(images)
             targets.append(labels)
-            if len(inputs) * loader.batch_size >= self.estimate_size:
-                break
         self.save_quantized(layer_name='input', activations=inputs)
         self.save_quantized(layer_name='target', activations=targets)
+        image_sample = inputs[0][:1]
+        return image_sample
+
+    def prepare(self, loader: torch.utils.data.DataLoader, model: nn.Module, monitor_layers_count=5):
+        self.eval_loader = loader
+        image_sample = self.prepare_input()
 
         layers_order = LayersOrder(model)
-        image_sample = inputs[0][:1]
         if torch.cuda.is_available():
             image_sample = image_sample.cuda()
         with torch.no_grad():
@@ -131,6 +140,8 @@ class MutualInfoBin(ABC):
         if not self.is_active:
             return
         layer_name = self.layer_to_name[module]
+        if sum(map(len, self.activations[layer_name])) > self.estimate_size:
+            return
         tensor_output_clone = tensor_output.cpu()
         if tensor_output_clone is tensor_output:
             tensor_output_clone = tensor_output_clone.clone()
@@ -138,18 +149,16 @@ class MutualInfoBin(ABC):
 
     def save_quantized(self, layer_name: str, activations: List[torch.FloatTensor]):
         activations = torch.cat(activations, dim=0)
-        size = min(len(activations), self.estimate_size)
-        activations = activations[: size]
         if layer_name == 'target':
             assert isinstance(activations, (torch.LongTensor, torch.IntTensor))
             activations = activations.numpy()
             self.quantized[layer_name] = activations
             return
-        activations = activations.view(activations.shape[0], -1)
+        activations = activations.flatten(start_dim=1)
         if layer_name not in self.n_bins:
             self.adjust_bins(layer_name, activations)
         if layer_name == 'input':
-            quantized_input = self.quantize_accurate(activations, n_bins=self.n_bins[layer_name])
+            quantized_input = self.quantize(activations, n_bins=self.n_bins[layer_name])
             self.quantized[layer_name] = quantized_input
             return
         self.quantized[layer_name] = self.quantize(activations, n_bins=self.n_bins[layer_name])
@@ -246,30 +255,35 @@ class MutualInfoBin(ABC):
         self.n_bins[layer_name] = n_bins
 
     @abstractmethod
-    def digitize(self, activations: torch.FloatTensor, n_bins: int) -> np.ndarray:
-        pass
-
     def quantize(self, activations: torch.FloatTensor, n_bins: int) -> np.ndarray:
-        digitized = self.digitize(activations, n_bins=n_bins)
-        unique, inverse = np.unique(digitized, return_inverse=True, axis=0)
-        return inverse
-
-    def quantize_accurate(self, activations: torch.FloatTensor, n_bins: int) -> np.ndarray:
-        # accurate version of quantize
-        return self.quantize(activations=activations, n_bins=n_bins)
+        pass
 
 
 class MutualInfoKMeans(MutualInfoBin):
 
-    def digitize(self, activations: torch.FloatTensor, n_bins: int) -> np.ndarray:
-        model = cluster.MiniBatchKMeans(n_clusters=n_bins)
-        labels = model.fit_predict(activations)
-        return labels
-
     def quantize(self, activations: torch.FloatTensor, n_bins: int) -> np.ndarray:
-        return self.digitize(activations, n_bins=n_bins)
-
-    def quantize_accurate(self, activations: torch.FloatTensor, n_bins: int) -> np.ndarray:
-        model = cluster.KMeans(n_clusters=n_bins, n_jobs=-1)
+        model = cluster.MiniBatchKMeans(n_clusters=n_bins, batch_size=BATCH_SIZE)
         labels = model.fit_predict(activations)
         return labels
+
+    def prepare_input(self):
+        """
+        Partial update.
+        """
+        image_sample = None
+        targets = []
+        classifier = cluster.MiniBatchKMeans(n_clusters=self.n_bins_default,
+                                             batch_size=BATCH_SIZE,
+                                             compute_labels=False)
+        for images, labels in self.eval_batches():
+            image_sample = images[:1]
+            images = images.flatten(start_dim=1)
+            classifier.partial_fit(images, labels)
+            targets.append(labels)
+        labels_predicted = []
+        for images, _ in self.eval_batches():
+            images = images.flatten(start_dim=1)
+            labels_predicted.append(classifier.predict(images))
+        self.quantized['input'] = np.hstack(labels_predicted)
+        self.save_quantized(layer_name='target', activations=targets)
+        return image_sample
