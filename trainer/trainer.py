@@ -62,7 +62,10 @@ class Trainer(ABC):
 
     def save(self):
         self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save(self.state_dict(), self.checkpoint_path)
+        try:
+            torch.save(self.state_dict(), self.checkpoint_path)
+        except PermissionError as error:
+            print(error)
 
     def state_dict(self):
         return {
@@ -151,6 +154,7 @@ class Trainer(ABC):
         :return: last batch loss
         """
         loss_batch_average = MeanOnline()
+        outputs = None
         use_cuda = torch.cuda.is_available()
         for images, labels in tqdm(self.train_loader,
                                    desc="Epoch {:d}".format(epoch),
@@ -167,10 +171,14 @@ class Trainer(ABC):
             self.monitor.batch_finished(self.model)
 
             # uncomment to see more detailed progress - at each batch instead of epoch
+            # self.monitor.update_loss(loss=loss, mode='batch')
+            # self.monitor.update_sparsity(outputs, mode='batch')
+            # self.monitor.update_density(outputs, mode='batch')
             # self.monitor.activations_heatmap(outputs, labels)
-            # self.monitor.update_loss(loss=loss.item(), mode='batch')
 
-        return loss_batch_average.get_mean()
+        self.monitor.update_loss(loss=loss_batch_average.get_mean(), mode='batch')
+        self.monitor.update_sparsity(outputs, mode='batch')
+        self.monitor.update_density(outputs, mode='batch')
 
     def train(self, n_epoch=10, epoch_update_step=1, mutual_info_layers=1, adversarial=False, mask_explain=False):
         """
@@ -208,9 +216,8 @@ class Trainer(ABC):
             self.monitor.mutual_info.prepare(eval_loader, model=self.model, monitor_layers_count=mutual_info_layers)
 
         for epoch in range(self.timer.epoch, self.timer.epoch + n_epoch):
-            loss_batch_average = self.train_epoch(epoch=epoch)
+            self.train_epoch(epoch=epoch)
             if epoch % epoch_update_step == 0:
-                self.monitor.update_loss(loss=loss_batch_average, mode='batch')
                 outputs_full, labels_full = full_forward_pass_eval(self.model)
                 self.accuracy_measure.save(outputs_train=outputs_full, labels_train=labels_full)
                 self.monitor.epoch_finished(self.model, outputs_full, labels_full)

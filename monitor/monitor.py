@@ -255,7 +255,8 @@ class Monitor(object):
         for monitored_function in self.functions:
             monitored_function(self.viz)
         self.update_grad_norm()
-        self.update_sparsity(outputs_full)
+        self.update_sparsity(outputs_full, mode='full train')
+        self.update_density(outputs_full, mode='full train')
         self.activations_heatmap(outputs_full, labels_full)
         self.firing_frequency(outputs_full)
         if self.advanced_monitoring:
@@ -269,13 +270,26 @@ class Monitor(object):
             if param.requires_grad:
                 self.param_records[name] = ParamRecord(param)
 
-    def update_sparsity(self, outputs):
+    def update_sparsity(self, outputs, mode: str):
+        outputs = outputs.detach()
         sparsity = outputs.norm(p=1, dim=1).mean() / outputs.shape[1]
-        self.viz.line_update(y=sparsity, opts=dict(
+        self.viz.line_update(y=sparsity.cpu(), opts=dict(
             xlabel='Epoch',
             ylabel='L1 norm / size',
-            title='Last layer sparsity',
-        ))
+            title='Output sparsity',
+        ), name=mode)
+
+    def update_density(self, outputs, mode: str):
+        outputs = outputs.detach()
+        mean = outputs.mean(dim=0)
+        var = outputs.var(dim=0)
+        density = 1 / (var / (mean * mean + 1e-7) + 1)
+        density = density.mean()
+        self.viz.line_update(y=density.cpu(), opts=dict(
+            xlabel='Epoch',
+            ylabel='(mean / std) ^ 2',
+            title='Output density',
+        ), name=mode)
 
     def update_initial_difference(self):
         legend = []
