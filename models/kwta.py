@@ -4,6 +4,7 @@ import torch
 
 from utils.constants import SPARSITY
 from utils.layers import SerializableModule
+from monitor.var_online import MeanOnlineBatch
 
 
 def get_kwta_threshold(tensor: torch.FloatTensor, sparsity: float):
@@ -80,24 +81,25 @@ class SynapticScaling(SerializableModule):
     Wrapper for KWTA to account synaptic scaling plasticity.
     """
 
-    state_attr = ['synaptic_scale', 'frequency', 'seen']
+    state_attr = ['synaptic_scale', 'frequency']
 
     def __init__(self, kwta_layer: KWinnersTakeAll, synaptic_scale=1.0):
         super().__init__()
         self.kwta = kwta_layer
         self.synaptic_scale = synaptic_scale
-        self.frequency = None
-        self.seen = 0
+        self.frequency = MeanOnlineBatch()
+
+    @property
+    def sparsity(self):
+        return self.kwta.sparsity
 
     def forward(self, x):
-        batch_size, embedding_size = x.shape
-        if self.frequency is None:
-            self.frequency = torch.zeros(embedding_size, device=x.device)
-        scale = torch.exp(-self.synaptic_scale * self.frequency.clone())
-        x = x * scale
+        frequency = self.frequency.get_mean()
+        if frequency is not None:
+            scale = torch.exp(-self.synaptic_scale * frequency)
+            x = x * scale
         x = self.kwta(x)
-        self.seen += batch_size
-        self.frequency += (x.detach().sum(dim=0) - self.frequency * batch_size) / self.seen
+        self.frequency.update(x.detach())
         return x
 
     def extra_repr(self):

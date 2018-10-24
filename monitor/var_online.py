@@ -36,6 +36,17 @@ class MeanOnline:
         self.count = 0
 
 
+class MeanOnlineBatch(MeanOnline):
+
+    def update(self, new_tensor):
+        batch_size = new_tensor.shape[0]
+        self.count += batch_size
+        if self.mean is None:
+            self.mean = new_tensor.mean(dim=0)
+        else:
+            self.mean += (new_tensor.sum(dim=0) - self.mean * batch_size) / self.count
+
+
 class VarianceOnline(MeanOnline):
     """
     Online updating sample mean and unbiased variance in a single pass.
