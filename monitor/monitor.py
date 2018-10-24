@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.utils.data
 from sklearn.metrics import confusion_matrix, pairwise
 
-from monitor.accuracy import calc_accuracy, full_forward_pass, Accuracy
+from monitor.accuracy import calc_accuracy, full_forward_pass, Accuracy, AccuracyArgmax
 from monitor.batch_timer import timer, ScheduleStep
 from monitor.mutual_info import MutualInfoKMeans
 from monitor.var_online import VarianceOnline
@@ -73,7 +73,8 @@ class Monitor(object):
             self.normalize_inverse = get_normalize_inverse(self.test_loader.dataset.transform)
         self.accuracy_measure = accuracy_measure
         self.param_records = ParamsDict()
-        self.mutual_info = MutualInfoKMeans(estimate_size=int(1e3), compression_range=(0.5, 0.999))
+        estimate_size = int(os.getenv('FULL_FORWARD_PASS_SIZE', 1000))
+        self.mutual_info = MutualInfoKMeans(estimate_size=estimate_size, compression_range=(0.5, 0.999))
         self.functions = []
 
     @property
@@ -330,6 +331,9 @@ class Monitor(object):
         :param outputs: the last layer activations
         :param labels: corresponding labels
         """
+        if isinstance(self.accuracy_measure, AccuracyArgmax):
+            # doesn't make sense to plot log-softmax
+            return
 
         def compute_manhattan_dist(tensor: torch.FloatTensor) -> float:
             l1_dist = pairwise.manhattan_distances(tensor.cpu())

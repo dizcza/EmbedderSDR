@@ -3,17 +3,24 @@ from typing import Optional
 import torch.nn as nn
 import torchvision
 
+softmax_out_features = 256
+
 
 def _classifier(in_features: int, kwta: Optional[nn.Module]):
     if kwta:
-        return nn.Sequential(nn.Linear(in_features=in_features, out_features=256, bias=False), kwta)
+        return nn.Sequential(nn.Linear(in_features=in_features, out_features=softmax_out_features, bias=False), kwta)
     else:
-        return nn.Linear(in_features=in_features, out_features=256)
+        return nn.Linear(in_features=in_features, out_features=softmax_out_features)
 
 
 def make_no_grad(model):
     for param in model.parameters():
         param.requires_grad_(False)
+
+
+def set_softmax_out_features(out_features):
+    global softmax_out_features
+    softmax_out_features = out_features
 
 
 def resnet18(pretrained=True, kwta=None):
@@ -26,7 +33,7 @@ def resnet18(pretrained=True, kwta=None):
 def squeezenet1_1(pretrained=True, kwta=None):
     model = torchvision.models.squeezenet1_1(pretrained=pretrained)
     make_no_grad(model)
-    model.num_classes = 256
+    model.num_classes = softmax_out_features
     final_conv = nn.Conv2d(512, model.num_classes, kernel_size=1)
     nn.init.normal_(final_conv.weight, mean=0.0, std=0.01)
     classifier = [nn.Dropout(p=0.5), final_conv, nn.ReLU(inplace=True), nn.AvgPool2d(13, stride=1)]

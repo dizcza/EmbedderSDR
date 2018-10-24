@@ -110,9 +110,10 @@ def train_pretrained(n_epoch=500, dataset_name="CIFAR10"):
 
 
 def train_caltech(n_epoch=500, dataset_name="Caltech256"):
+    models.caltech.set_softmax_out_features(out_features=int(dataset_name.lstrip("Caltech")))
     kwta = None
     kwta = KWinnersTakeAllSoft(sparsity=0.3)
-    model = models.caltech.squeezenet1_1(kwta=kwta)
+    model = models.caltech.resnet18(kwta=kwta)
     if kwta:
         criterion = ContrastiveLossBatch(metric='cosine', random_pairs=True)
         optimizer, scheduler = get_optimizer_scheduler(model)
@@ -121,7 +122,6 @@ def train_caltech(n_epoch=500, dataset_name="Caltech256"):
         trainer = TrainerGradKWTA(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
                                   scheduler=scheduler, kwta_scheduler=kwta_scheduler)
     else:
-        model.fc = nn.Linear(in_features=512, out_features=int(dataset_name.lstrip("Caltech")))
         criterion = nn.CrossEntropyLoss()
         optimizer, scheduler = get_optimizer_scheduler(model)
         trainer = TrainerGrad(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,

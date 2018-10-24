@@ -10,6 +10,7 @@ import torch.nn as nn
 import torch.utils.data
 from sklearn import cluster
 from sklearn.metrics import mutual_info_score
+from tqdm import tqdm
 
 from monitor.batch_timer import ScheduleExp
 from utils.constants import BATCH_SIZE
@@ -43,9 +44,9 @@ class MutualInfoBin(ABC):
     log2e = math.log2(math.e)
     n_bins_default = 20
 
-    def __init__(self, estimate_size: int = np.inf, compression_range=(0.50, 0.999), debug=False):
+    def __init__(self, estimate_size=float('inf'), compression_range=(0.50, 0.999), debug=False):
         """
-        :param estimate_size: number of samples to estimate MI from
+        :param estimate_size: number of samples to estimate mutual information from
         :param compression_range: min & max acceptable quantization compression range
         :param debug: plot bins distribution?
         """
@@ -85,6 +86,7 @@ class MutualInfoBin(ABC):
             outputs = get_outputs_old(*args, **kwargs)
             self.finish_listening()
             return outputs
+
         return get_outputs_wrapped
 
     def eval_batches(self):
@@ -98,7 +100,8 @@ class MutualInfoBin(ABC):
     def prepare_input(self):
         inputs = []
         targets = []
-        for images, labels in self.eval_batches():
+        for images, labels in tqdm(self.eval_batches(), total=len(self.eval_loader),
+                                   desc="MutualInfo: quantizing input data"):
             inputs.append(images)
             targets.append(labels)
         self.save_quantized(layer_name='input', activations=inputs)
@@ -275,13 +278,15 @@ class MutualInfoKMeans(MutualInfoBin):
         classifier = cluster.MiniBatchKMeans(n_clusters=self.n_bins_default,
                                              batch_size=BATCH_SIZE,
                                              compute_labels=False)
-        for images, labels in self.eval_batches():
+        for images, labels in tqdm(self.eval_batches(), total=len(self.eval_loader),
+                                   desc="MutualInfo: quantizing input data. Stage 1"):
             image_sample = images[:1]
             images = images.flatten(start_dim=1)
             classifier.partial_fit(images, labels)
             targets.append(labels)
         labels_predicted = []
-        for images, _ in self.eval_batches():
+        for images, _ in tqdm(self.eval_batches(), total=len(self.eval_loader),
+                              desc="MutualInfo: quantizing input data. Stage 2"):
             images = images.flatten(start_dim=1)
             labels_predicted.append(classifier.predict(images))
         self.quantized['input'] = np.hstack(labels_predicted)
