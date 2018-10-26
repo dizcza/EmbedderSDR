@@ -51,6 +51,9 @@ class Schedule(ABC):
     def __call__(self, func: Callable):
         @wraps(func)
         def wrapped(*args, **kwargs):
+            if self.last_batch_update == -1:
+                # restore the last trained batch
+                self.last_batch_update = timer.batch_id - 1
             if timer.batch_id >= self.next_batch_update():
                 self.last_batch_update = timer.batch_id
                 func(*args, **kwargs)
