@@ -7,6 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from monitor.batch_timer import timer
+from utils.layers import SerializableModule
 
 
 class ContrastiveLoss(nn.Module, ABC):
@@ -52,7 +53,8 @@ class ContrastiveLoss(nn.Module, ABC):
             return dist
 
 
-class LossFixedPattern(ContrastiveLoss):
+class LossFixedPattern(ContrastiveLoss, SerializableModule):
+    state_attr = ['patterns']
 
     def __init__(self, sparsity: float, metric='cosine', eps=1e-7):
         super().__init__(metric=metric, eps=eps)
