@@ -24,6 +24,8 @@ class Trainer(ABC):
     watch_modules = (nn.Linear, nn.Conv2d)
 
     def __init__(self, model: nn.Module, criterion: nn.Module, dataset_name: str, env_suffix=''):
+        if torch.cuda.is_available():
+            model = model.cuda()
         self.model = model
         self.criterion = criterion
         self.dataset_name = dataset_name
@@ -198,9 +200,6 @@ class Trainer(ABC):
         self.monitor.log_model(self.model)
         self.monitor.log_self()
         self.log_trainer()
-        use_cuda = torch.cuda.is_available()
-        if use_cuda:
-            self.model.cuda()
         print(f"Training '{self.model.__class__.__name__}'")
 
         eval_loader = torch.utils.data.DataLoader(dataset=self.train_loader.dataset,
