@@ -179,8 +179,9 @@ class Trainer(ABC):
             # self.monitor.activations_heatmap(outputs, labels)
 
         self.monitor.update_loss(loss=loss_batch_average.get_mean(), mode='batch')
-        self.monitor.update_sparsity(outputs, mode='batch')
-        self.monitor.update_density(outputs, mode='batch')
+        if isinstance(self.accuracy_measure, AccuracyEmbedding):
+            self.monitor.update_sparsity(outputs, mode='batch')
+            self.monitor.update_density(outputs, mode='batch')
 
     def train(self, n_epoch=10, epoch_update_step=1, mutual_info_layers=1, adversarial=False, mask_explain=False):
         """

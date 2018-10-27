@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.utils.data
 from sklearn.metrics import confusion_matrix, pairwise
 
-from monitor.accuracy import calc_accuracy, full_forward_pass, Accuracy, AccuracyArgmax
+from monitor.accuracy import calc_accuracy, full_forward_pass, Accuracy, AccuracyEmbedding
 from monitor.batch_timer import timer, ScheduleStep
 from monitor.mutual_info import MutualInfoKMeans
 from monitor.var_online import VarianceOnline
@@ -256,10 +256,11 @@ class Monitor(object):
         for monitored_function in self.functions:
             monitored_function(self.viz)
         self.update_grad_norm()
-        self.update_sparsity(outputs_full, mode='full train')
-        self.update_density(outputs_full, mode='full train')
-        self.activations_heatmap(outputs_full, labels_full)
-        self.firing_frequency(outputs_full)
+        if isinstance(self.accuracy_measure, AccuracyEmbedding):
+            self.update_sparsity(outputs_full, mode='full train')
+            self.update_density(outputs_full, mode='full train')
+            self.activations_heatmap(outputs_full, labels_full)
+            self.firing_frequency(outputs_full)
         if self.advanced_monitoring:
             self.param_records.plot_sign_flips(self.viz)
             self.update_gradient_mean_std()
@@ -331,10 +332,6 @@ class Monitor(object):
         :param outputs: the last layer activations
         :param labels: corresponding labels
         """
-        if isinstance(self.accuracy_measure, AccuracyArgmax):
-            # doesn't make sense to plot log-softmax
-            return
-
         def compute_manhattan_dist(tensor: torch.FloatTensor) -> float:
             l1_dist = pairwise.manhattan_distances(tensor.cpu())
             upper_triangle_idx = np.triu_indices_from(l1_dist, k=1)

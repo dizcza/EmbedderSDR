@@ -21,8 +21,6 @@ class VisdomMighty(visdom.Visdom):
 
     def prepare(self):
         self.register_plot(win='Loss', legend=['batch', 'full train'])
-        self.register_plot(win='Output sparsity', legend=['batch', 'full train'])
-        self.register_plot(win='Output density', legend=['batch', 'full train'])
         self.register_plot(win='Accuracy', legend=['full train', 'full test'])
 
     def register_plot(self, win: str, legend: Iterable[str]):
