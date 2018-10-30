@@ -74,7 +74,7 @@ class Monitor(object):
         self.accuracy_measure = accuracy_measure
         self.param_records = ParamsDict()
         estimate_size = int(os.getenv('FULL_FORWARD_PASS_SIZE', 1000))
-        self.mutual_info = MutualInfoNeuralEstimation(estimate_size=estimate_size, debug=True)
+        self.mutual_info = MutualInfoKMeans(estimate_size=estimate_size, debug=True)
         self.functions = []
 
     @property
