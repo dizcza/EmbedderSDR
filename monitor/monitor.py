@@ -11,7 +11,7 @@ from sklearn.metrics import confusion_matrix, pairwise
 
 from monitor.accuracy import calc_accuracy, full_forward_pass, Accuracy, AccuracyEmbedding
 from monitor.batch_timer import timer, ScheduleStep
-from monitor.mutual_info import MutualInfoKMeans
+from monitor.mutual_info import MutualInfoKMeans, MutualInfoNeuralEstimation
 from monitor.var_online import VarianceOnline
 from monitor.viz import VisdomMighty
 from utils.common import AdversarialExamples
@@ -74,7 +74,7 @@ class Monitor(object):
         self.accuracy_measure = accuracy_measure
         self.param_records = ParamsDict()
         estimate_size = int(os.getenv('FULL_FORWARD_PASS_SIZE', 1000))
-        self.mutual_info = MutualInfoKMeans(estimate_size=estimate_size, compression_range=(0.5, 0.999))
+        self.mutual_info = MutualInfoNeuralEstimation(estimate_size=estimate_size, debug=True)
         self.functions = []
 
     @property
@@ -99,6 +99,7 @@ class Monitor(object):
 
     def log_self(self):
         self.log(f"{self.__class__.__name__}(accuracy_measure={self.accuracy_measure.__class__.__name__})")
+        self.log(repr(self.mutual_info))
         self.log(f"FULL_FORWARD_PASS_SIZE: {os.environ.get('FULL_FORWARD_PASS_SIZE', '(all samples)')}")
         self.log(f"BATCH_SIZE: {os.environ.get('BATCH_SIZE', '(default)')}")
         self.log(f"Batches in epoch: {self.timer.batches_in_epoch}")

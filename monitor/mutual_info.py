@@ -1,4 +1,5 @@
 import math
+import random
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from functools import wraps
@@ -40,28 +41,95 @@ class LayersOrder:
         return tuple(self.layers_ordered)
 
 
-class MutualInfoBin(ABC):
-    log2e = math.log2(math.e)
-    n_bins_default = 20
+class MutualInfoNeuralEstimationNetwork(nn.Module):
+    """
+    https://arxiv.org/pdf/1801.04062.pdf
+    """
 
-    def __init__(self, estimate_size=float('inf'), compression_range=(0.50, 0.999), debug=False):
+    n_hidden = 10  # number of hidden units in MINE net
+
+    def __init__(self, x_size: int, y_size: int):
+        """
+        :param x_size: hidden layer shape
+        :param y_size: input/target data shape
+        """
+        super().__init__()
+        self.fc_x = nn.Linear(x_size, self.n_hidden)
+        self.fc_y = nn.Linear(y_size, self.n_hidden)
+        self.fc_output = nn.Linear(self.n_hidden, 1)
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x, y):
+        """
+        :param x: some hidden layer batch activations of shape (batch_size, embedding_size)
+        :param y: either input or target data samples of shape (batch_size, input_dimensions or 1)
+        :return: mutual information I(x, y) approximation
+        """
+        hidden = self.fc_x(x) + self.fc_y(y)
+        hidden = self.relu(hidden)
+        output = self.fc_output(hidden)
+        return output
+
+
+class MINETrainer:
+    flat_filter_size = 10  # smoothing filter size
+    noise_variance = 0.2  # for smooth gradient flow
+
+    def __init__(self, mine_model: nn.Module):
+        self.mine_model = mine_model
+        self.optimizer = torch.optim.Adam(self.mine_model.parameters(), lr=0.01)
+        self.mutual_info_history = [0]
+        self.noise_sampler = torch.distributions.normal.Normal(loc=0, scale=math.sqrt(self.noise_variance))
+
+    def start_training(self):
+        self.mutual_info_history = [0]
+
+    def add_noise(self, activations):
+        return activations + self.noise_sampler.sample(activations.shape)
+
+    def train_batch(self, data_batch, labels_batch):
+        self.optimizer.zero_grad()
+        pred_joint = self.mine_model(data_batch, labels_batch)
+        data_batch = data_batch[torch.randperm(data_batch.shape[0], device=data_batch.device)]
+        labels_batch = labels_batch[torch.randperm(labels_batch.shape[0], device=labels_batch.device)]
+        pred_marginal = self.mine_model(data_batch, labels_batch)
+        mutual_info_lower_bound = torch.mean(pred_joint) - torch.log(torch.mean(torch.exp(pred_marginal)))
+        self.mutual_info_history.append(mutual_info_lower_bound.item())
+        loss = -mutual_info_lower_bound  # maximize
+        loss.backward()
+        self.optimizer.step()
+
+    def finish_training(self):
+        flat_filter = np.ones(self.flat_filter_size) / self.flat_filter_size
+        self.mutual_info_history = np.convolve(flat_filter, self.mutual_info_history, mode='valid').tolist()
+
+    def get_mutual_info(self):
+        return self.mutual_info_history[-1]
+
+
+class MutualInfo(ABC):
+    log2e = math.log2(math.e)
+    n_bins_default = 10
+
+    def __init__(self, estimate_size=float('inf'), debug=False):
         """
         :param estimate_size: number of samples to estimate mutual information from
-        :param compression_range: min & max acceptable quantization compression range
         :param debug: plot bins distribution?
         """
         self.estimate_size = estimate_size
-        self.compression_range = compression_range
         self.debug = debug
-        self.n_bins = {}
-        self.compression = {}
-        self.max_trials_adjust = 10
         self.activations = defaultdict(list)
         self.quantized = {}
         self.information = {}
         self.is_active = False
         self.eval_loader = None
         self.layer_to_name = {}
+
+    def __repr__(self):
+        return f"{self.__class__.__name__}({self.extra_repr()})"
+
+    def extra_repr(self):
+        return f"estimate_size={self.estimate_size}"
 
     def register(self, layer: nn.Module, name: str):
         self.layer_to_name[layer] = name
@@ -98,15 +166,27 @@ class MutualInfoBin(ABC):
             yield images, labels
 
     def prepare_input(self):
-        inputs = []
+        image_sample = None
         targets = []
+        classifier = cluster.MiniBatchKMeans(n_clusters=self.n_bins_default,
+                                             batch_size=BATCH_SIZE,
+                                             compute_labels=False)
         for images, labels in tqdm(self.eval_batches(), total=len(self.eval_loader),
-                                   desc="MutualInfo: quantizing input data"):
-            inputs.append(images)
+                                   desc="MutualInfo: quantizing input data. Stage 1"):
+            image_sample = images[:1]
+            images = images.flatten(start_dim=1)
+            classifier.partial_fit(images, labels)
             targets.append(labels)
-        self.save_quantized(layer_name='input', activations=inputs)
-        self.save_quantized(layer_name='target', activations=targets)
-        image_sample = inputs[0][:1]
+        targets = torch.cat(targets, dim=0)
+        self.quantized['target'] = targets.numpy()
+
+        centroids_predicted = []
+        for images, _ in tqdm(self.eval_batches(), total=len(self.eval_loader),
+                              desc="MutualInfo: quantizing input data. Stage 2"):
+            images = images.flatten(start_dim=1)
+            centroids_predicted.append(classifier.predict(images))
+        self.quantized['input'] = np.hstack(centroids_predicted)
+
         return image_sample
 
     def prepare(self, loader: torch.utils.data.DataLoader, model: nn.Module, monitor_layers_count=5):
@@ -136,7 +216,7 @@ class MutualInfoBin(ABC):
     def finish_listening(self):
         self.is_active = False
         for hname, activations in self.activations.items():
-            self.save_quantized(layer_name=hname, activations=activations)
+            self.process_activations(layer_name=hname, activations=activations)
         self.save_mutual_info()
 
     def save_activations(self, module: nn.Module, tensor_input, tensor_output):
@@ -148,22 +228,72 @@ class MutualInfoBin(ABC):
         tensor_output_clone = tensor_output.cpu()
         if tensor_output_clone is tensor_output:
             tensor_output_clone = tensor_output_clone.clone()
+        tensor_output_clone = tensor_output_clone.flatten(start_dim=1)
         self.activations[layer_name].append(tensor_output_clone)
 
-    def save_quantized(self, layer_name: str, activations: List[torch.FloatTensor]):
-        activations = torch.cat(activations, dim=0)
-        if layer_name == 'target':
-            assert isinstance(activations, (torch.LongTensor, torch.IntTensor))
-            activations = activations.numpy()
-            self.quantized[layer_name] = activations
+    def plot_activations_hist(self, viz):
+        for hname, activations in self.activations.items():
+            title = f'Activations histogram: {hname}'
+            activations = torch.cat(activations, dim=0)
+            viz.histogram(activations.view(-1), win=title, opts=dict(
+                xlabel='neuron value',
+                ylabel='neuron counts',
+                title=title,
+            ))
+
+    def _plot_debug(self, viz):
+        self.plot_activations_hist(viz)
+
+    def plot(self, viz):
+        assert not self.is_active, "Wait, not finished yet."
+        if len(self.information) == 0:
             return
-        activations = activations.flatten(start_dim=1)
+        if self.debug:
+            self._plot_debug(viz)
+        legend = []
+        info_hidden_input = []
+        info_hidden_output = []
+        for layer_name, (info_x, info_y) in self.information.items():
+            info_hidden_input.append(info_x)
+            info_hidden_output.append(info_y)
+            legend.append(layer_name)
+        title = 'Mutual information plane'
+        viz.line(Y=np.array([info_hidden_output]), X=np.array([info_hidden_input]), win=title, opts=dict(
+            xlabel='I(X, T), bits',
+            ylabel='I(T, Y), bits',
+            title=title,
+            legend=legend,
+        ), update='append' if viz.win_exists(title) else None)
+        self.information.clear()
+        self.activations.clear()
+
+    @abstractmethod
+    def process_activations(self, layer_name: str, activations: List[torch.FloatTensor]):
+        pass
+
+    @abstractmethod
+    def save_mutual_info(self):
+        pass
+
+
+class MutualInfoKMeans(MutualInfo):
+
+    def __init__(self, estimate_size=float('inf'), debug=False, compression_range=(0.50, 0.999)):
+        """
+        :param estimate_size: number of samples to estimate mutual information from
+        :param debug: plot bins distribution?
+        :param compression_range: min & max acceptable quantization compression range
+        """
+        super().__init__(estimate_size=estimate_size, debug=debug)
+        self.compression_range = compression_range
+        self.n_bins = {}
+        self.compression = {}
+        self.max_trials_adjust = 10
+
+    def process_activations(self, layer_name: str, activations: List[torch.FloatTensor]):
+        activations = torch.cat(activations, dim=0)
         if layer_name not in self.n_bins:
             self.adjust_bins(layer_name, activations)
-        if layer_name == 'input':
-            quantized_input = self.quantize(activations, n_bins=self.n_bins[layer_name])
-            self.quantized[layer_name] = quantized_input
-            return
         self.quantized[layer_name] = self.quantize(activations, n_bins=self.n_bins[layer_name])
 
     def save_mutual_info(self):
@@ -176,7 +306,33 @@ class MutualInfoBin(ABC):
 
     @staticmethod
     def compute_mutual_info(x, y) -> float:
-        return mutual_info_score(x, y) * MutualInfoBin.log2e
+        return mutual_info_score(x, y) * MutualInfo.log2e
+
+    @staticmethod
+    def quantize(activations: torch.FloatTensor, n_bins: int) -> np.ndarray:
+        model = cluster.MiniBatchKMeans(n_clusters=n_bins, batch_size=BATCH_SIZE, compute_labels=False)
+        model.fit(activations)
+        labels = model.predict(activations)
+        return labels
+
+    def adjust_bins(self, layer_name: str, activations: torch.FloatTensor):
+        # todo use constant n_bins that equals total number of classes
+        n_bins = self.n_bins_default
+        compression_min, compression_max = self.compression_range
+        for trial in range(self.max_trials_adjust):
+            quantized = self.quantize(activations, n_bins)
+            unique = np.unique(quantized, axis=0)
+            compression = (len(activations) - len(unique)) / len(activations)
+            if compression > compression_max:
+                n_bins *= 2
+            elif compression < compression_min:
+                n_bins = max(2, int(n_bins / 2))
+                if n_bins == 2:
+                    break
+            else:
+                self.compression[layer_name] = compression
+                break
+        self.n_bins[layer_name] = n_bins
 
     def plot_quantized_hist(self, viz):
         """
@@ -204,91 +360,85 @@ class MutualInfoBin(ABC):
             title=f'MI quantized compression',
         ))
 
-    def plot_activations_hist(self, viz):
-        for hname, activations in self.activations.items():
-            title = f'Activations histogram: {hname}'
-            activations = torch.cat(activations, dim=0)
-            viz.histogram(activations.view(-1), win=title, opts=dict(
-                xlabel='neuron value',
-                ylabel='neuron counts',
-                title=title,
-            ))
-
-    def plot(self, viz):
-        assert not self.is_active, "Wait, not finished yet."
-        if len(self.information) == 0:
-            return
-        if self.debug:
-            self.plot_quantized_hist(viz)
-            self.plot_compression(viz)
-            self.plot_activations_hist(viz)
-        legend = []
-        info_hidden_input = []
-        info_hidden_output = []
-        for layer_name, (info_x, info_y) in self.information.items():
-            info_hidden_input.append(info_x)
-            info_hidden_output.append(info_y)
-            legend.append(layer_name)
-        title = 'Mutual information plane'
-        viz.line(Y=np.array([info_hidden_output]), X=np.array([info_hidden_input]), win=title, opts=dict(
-            xlabel='I(X, T), bits',
-            ylabel='I(T, Y), bits',
-            title=title,
-            legend=legend,
-        ), update='append' if viz.win_exists(title) else None)
-        self.information.clear()
-        self.activations.clear()
-
-    def adjust_bins(self, layer_name: str, activations: torch.FloatTensor):
-        n_bins = self.n_bins_default
-        compression_min, compression_max = self.compression_range
-        for trial in range(self.max_trials_adjust):
-            quantized = self.quantize(activations, n_bins)
-            unique = np.unique(quantized, axis=0)
-            compression = (len(activations) - len(unique)) / len(activations)
-            if compression > compression_max:
-                n_bins *= 2
-            elif compression < compression_min:
-                n_bins = max(2, int(n_bins / 2))
-                if n_bins == 2:
-                    break
-            else:
-                self.compression[layer_name] = compression
-                break
-        self.n_bins[layer_name] = n_bins
-
-    @abstractmethod
-    def quantize(self, activations: torch.FloatTensor, n_bins: int) -> np.ndarray:
-        pass
+    def _plot_debug(self, viz):
+        super()._plot_debug(viz)
+        self.plot_quantized_hist(viz)
+        self.plot_compression(viz)
 
 
-class MutualInfoKMeans(MutualInfoBin):
+class MutualInfoNeuralEstimation(MutualInfo):
 
-    def quantize(self, activations: torch.FloatTensor, n_bins: int) -> np.ndarray:
-        model = cluster.MiniBatchKMeans(n_clusters=n_bins, batch_size=BATCH_SIZE)
-        labels = model.fit_predict(activations)
-        return labels
+    def __init__(self, estimate_size=float('inf'), estimate_epochs=3, debug=False):
+        """
+        :param estimate_size: number of samples to estimate mutual information from
+        :param estimate_epochs: total estimation epochs to run
+        :param debug: plot bins distribution?
+        """
+        super().__init__(estimate_size=estimate_size, debug=debug)
+        self.estimate_epochs = estimate_epochs
+        self.trainers = {}  # MutualInformationNeuralEstimation trainers for both input X- and target Y-data
+
+    def extra_repr(self):
+        return super().extra_repr() + f", estimate_epochs={self.estimate_epochs}"
 
     def prepare_input(self):
-        """
-        Partial update.
-        """
-        image_sample = None
-        targets = []
-        classifier = cluster.MiniBatchKMeans(n_clusters=self.n_bins_default,
-                                             batch_size=BATCH_SIZE,
-                                             compute_labels=False)
-        for images, labels in tqdm(self.eval_batches(), total=len(self.eval_loader),
-                                   desc="MutualInfo: quantizing input data. Stage 1"):
-            image_sample = images[:1]
-            images = images.flatten(start_dim=1)
-            classifier.partial_fit(images, labels)
-            targets.append(labels)
-        labels_predicted = []
-        for images, _ in tqdm(self.eval_batches(), total=len(self.eval_loader),
-                              desc="MutualInfo: quantizing input data. Stage 2"):
-            images = images.flatten(start_dim=1)
-            labels_predicted.append(classifier.predict(images))
-        self.quantized['input'] = np.hstack(labels_predicted)
-        self.save_quantized(layer_name='target', activations=targets)
+        image_sample = super().prepare_input()
+        for data_type in ('input', 'target'):
+            tensor = torch.from_numpy(self.quantized[data_type])
+            tensor = tensor.type(torch.float32)
+            # not sure if normalization helps
+            # tensor = (tensor - tensor.mean()) / tensor.std()
+            tensor.unsqueeze_(dim=1)
+            tensor = tensor.split(self.eval_loader.batch_size)
+            self.quantized[data_type] = tensor
         return image_sample
+
+    def process_activations(self, layer_name: str, activations: List[torch.FloatTensor]):
+        assert len(self.quantized['input']) == len(self.quantized['target']) == len(activations)
+        embedding_size = activations[0].shape[1]
+        if layer_name not in self.trainers:
+            mine_trainers = []
+            for _unused in range(2):
+                mine_model = MutualInfoNeuralEstimationNetwork(x_size=embedding_size, y_size=1)
+                mine_trainer = MINETrainer(mine_model)
+                mine_trainers.append(mine_trainer)
+            self.trainers[layer_name] = tuple(mine_trainers)
+        n_batches = len(activations)
+        for mi_trainer in self.trainers[layer_name]:
+            mi_trainer.start_training()
+        for epoch in range(self.estimate_epochs):
+            for batch_id in random.sample(range(n_batches), k=n_batches):
+                for data_type, trainer in zip(('input', 'target'), self.trainers[layer_name]):
+                    labels_batch = self.quantized[data_type][batch_id]
+                    labels_batch = trainer.add_noise(labels_batch)
+                    trainer.train_batch(data_batch=activations[batch_id], labels_batch=labels_batch)
+        for mi_trainer in self.trainers[layer_name]:
+            mi_trainer.finish_training()
+
+    def save_mutual_info(self):
+        for layer_name, (trainer_x, trainer_y) in self.trainers.items():
+            info_x = trainer_x.get_mutual_info()
+            info_y = trainer_y.get_mutual_info()
+            self.information[layer_name] = (info_x, info_y)
+
+    def plot_mine_history_loss(self, viz):
+        legend = []
+        info_x = []
+        info_y = []
+        for layer_name, (trainer_x, trainer_y) in self.trainers.items():
+            info_x.append(trainer_x.mutual_info_history)
+            info_y.append(trainer_y.mutual_info_history)
+            legend.append(layer_name)
+        for info_name, info in (('input X', info_x), ('target Y', info_y)):
+            info = np.transpose(info) * self.log2e
+            title = f'MutualInfoNeuralEstimation {info_name}'
+            viz.line(Y=info, win=title, opts=dict(
+                xlabel='Iteration',
+                ylabel='Mutual info lower bound, bits',
+                title=title,
+                legend=legend,
+            ))
+
+    def _plot_debug(self, viz):
+        self.plot_activations_hist(viz)
+        self.plot_mine_history_loss(viz)
