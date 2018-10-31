@@ -85,12 +85,7 @@ def get_data_loader(dataset: str, train=True, batch_size=BATCH_SIZE) -> torch.ut
             dataset_class = datasets.CIFAR10
         else:
             raise NotImplementedError()
-        transform = []
-        if train:
-            transform.append(transforms.RandomCrop(size=DATASET_IMAGE_SIZE[dataset], padding=4))
-            transform.append(transforms.RandomHorizontalFlip())
-        transform.extend([transforms.ToTensor(), NormalizeFromDataset(dataset_cls=dataset_class)])
-        transform = transforms.Compose(transform)
+        transform = transforms.Compose([transforms.ToTensor(), NormalizeFromDataset(dataset_cls=dataset_class)])
         dataset = dataset_class(DATA_DIR, train=train, download=True, transform=transform)
     num_workers = int(os.environ.get('LOADER_WORKERS', 4))
     loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
