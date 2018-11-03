@@ -9,7 +9,7 @@ import torch.utils.data
 from tqdm import tqdm
 
 from loss import ContrastiveLoss
-from monitor.accuracy import full_forward_pass, AccuracyEmbedding, AccuracyArgmax
+from monitor.accuracy import full_forward_pass, AccuracyEmbedding, AccuracyArgmax, calc_accuracy
 from monitor.batch_timer import timer
 from monitor.monitor import Monitor
 from monitor.var_online import MeanOnline
@@ -150,6 +150,11 @@ class Trainer(ABC):
         mode_saved.restore(self.model)
         return AdversarialExamples(original=images_orig, adversarial=images, labels=labels)
 
+    def update_batch_accuracy(self, outputs, labels):
+        self.accuracy_measure.save(outputs, labels)
+        labels_predicted = self.accuracy_measure.predict(outputs)
+        self.monitor.update_accuracy(accuracy=calc_accuracy(labels, labels_predicted), mode='batch')
+
     def train_epoch(self, epoch):
         """
         :param epoch: epoch id
@@ -174,6 +179,7 @@ class Trainer(ABC):
 
             # uncomment to see more detailed progress - at each batch instead of epoch
             # self.monitor.update_loss(loss=loss, mode='batch')
+            # self.update_batch_accuracy(outputs, labels)
             # self.monitor.update_sparsity(outputs, mode='batch')
             # self.monitor.update_density(outputs, mode='batch')
             # self.monitor.activations_heatmap(outputs, labels)

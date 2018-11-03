@@ -39,6 +39,26 @@ class LayersOrder:
         return tuple(self.layers_ordered)
 
 
+class AccuracyFromMutualInfo:
+    def __init__(self, n_classes: int, resolution_bins=100):
+        self.accuracy_binned = np.linspace(start=1 / n_classes, stop=1, num=resolution_bins, endpoint=False)
+        entropy_correct = self.accuracy_binned * np.log2(1 / self.accuracy_binned)
+        entropy_incorrect = (1 - self.accuracy_binned) * np.log2((n_classes - 1) / (1 - self.accuracy_binned))
+        entropy_class_given_activations = entropy_correct + entropy_incorrect
+        entropy_classes = np.log2(n_classes)
+        self.mutual_info_binned = entropy_classes - entropy_class_given_activations
+
+    def estimate_accuracy(self, mutual_info_bits: float) -> float:
+        """
+        :param mutual_info_bits: mutual information between the hidden layer and the true class
+        :return: estimated layer accuracy
+        """
+        bin_id = np.digitize(mutual_info_bits, bins=self.mutual_info_binned)
+        bin_id = min(bin_id, len(self.accuracy_binned) - 1)
+        accuracy_estimated = self.accuracy_binned[bin_id]
+        return accuracy_estimated
+
+
 class MutualInfo(ABC):
     log2e = math.log2(math.e)
     n_bins_default = 20
@@ -55,6 +75,7 @@ class MutualInfo(ABC):
         self.information = {}
         self.is_active = False
         self.eval_loader = None
+        self.accuracy_estimator = None
         self.layer_to_name = {}
 
     def __repr__(self):
@@ -108,6 +129,7 @@ class MutualInfo(ABC):
             classifier.partial_fit(images, labels)
             targets.append(labels)
         targets = torch.cat(targets, dim=0)
+        self.accuracy_estimator = AccuracyFromMutualInfo(n_classes=len(targets.unique()))
         self.quantized['target'] = targets.numpy()
 
         centroids_predicted = []
@@ -174,6 +196,18 @@ class MutualInfo(ABC):
     def _plot_debug(self, viz):
         self.plot_activations_hist(viz)
 
+    def estimate_accuracy(self):
+        """
+        Make sure to call this function before the information is cleared.
+        :return: dict of estimated accuracies from mutual information between each layer and the true class
+        """
+        accuracy = {}
+        for layer_name in self.layer_to_name.values():
+            if layer_name in self.information:
+                layer_information = self.information[layer_name][1]  # take I(T, Y)
+                accuracy[layer_name] = self.accuracy_estimator.estimate_accuracy(mutual_info_bits=layer_information)
+        return accuracy
+
     def plot(self, viz):
         assert not self.is_active, "Wait, not finished yet."
         if len(self.information) == 0:
@@ -204,4 +238,3 @@ class MutualInfo(ABC):
     @abstractmethod
     def save_mutual_info(self):
         pass
-

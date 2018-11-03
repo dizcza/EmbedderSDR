@@ -39,7 +39,7 @@ class MutualInfoKMeans(MutualInfo):
     def process_activations(self, layer_name: str, activations: List[torch.FloatTensor]):
         assert self.n_bins is not None, "Set n_bins manually"
         activations = torch.cat(activations, dim=0)
-        self.quantized[layer_name] = self.quantize(activations, n_bins=self.n_bins)
+        self.quantized[layer_name] = self.quantize(activations)
 
     def save_mutual_info(self):
         hidden_layers_name = set(self.quantized.keys())
@@ -53,11 +53,9 @@ class MutualInfoKMeans(MutualInfo):
     def compute_mutual_info(x, y) -> float:
         return mutual_info_score(x, y) * MutualInfo.log2e
 
-    @staticmethod
-    def quantize(activations: torch.FloatTensor, n_bins: int) -> np.ndarray:
-        model = cluster.MiniBatchKMeans(n_clusters=n_bins, batch_size=BATCH_SIZE, compute_labels=False)
-        model.fit(activations)
-        labels = model.predict(activations)
+    def quantize(self, activations: torch.FloatTensor) -> np.ndarray:
+        model = cluster.MiniBatchKMeans(n_clusters=self.n_bins, batch_size=BATCH_SIZE)
+        labels = model.fit_predict(activations)
         return labels
 
     def plot_quantized_hist(self, viz):

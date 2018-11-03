@@ -74,7 +74,7 @@ class Monitor(object):
         self.accuracy_measure = accuracy_measure
         self.param_records = ParamsDict()
         estimate_size = int(os.getenv('FULL_FORWARD_PASS_SIZE', 1000))
-        self.mutual_info = MutualInfoKMeans(estimate_size=estimate_size, debug=True)
+        self.mutual_info = MutualInfoKMeans(estimate_size=estimate_size, debug=False)
         self.functions = []
 
     @property
@@ -113,9 +113,9 @@ class Monitor(object):
     def batch_finished(self, model: nn.Module):
         self.param_records.batch_finished()
         self.timer.tick()
-        if self.timer.epoch == 0:
+        if self.timer.epoch == 1:
             self.mutual_info.force_update(model)
-            self.mutual_info.plot(self.viz)
+            self.update_mutual_info()
 
     def update_loss(self, loss: Optional[torch.Tensor], mode='batch'):
         if loss is None:
@@ -250,10 +250,15 @@ class Monitor(object):
             title='Mask loss'
         ))
 
+    def update_mutual_info(self):
+        for layer_name, estimated_accuracy in self.mutual_info.estimate_accuracy().items():
+            self.update_accuracy(accuracy=estimated_accuracy, mode=layer_name)
+        self.mutual_info.plot(self.viz)
+
     def epoch_finished(self, model: nn.Module, outputs_full, labels_full):
         self.update_accuracy_epoch(model, outputs_train=outputs_full, labels_train=labels_full)
         # self.update_distribution()
-        self.mutual_info.plot(self.viz)
+        self.update_mutual_info()
         for monitored_function in self.functions:
             monitored_function(self.viz)
         self.update_grad_norm()
