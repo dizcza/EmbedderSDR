@@ -21,8 +21,6 @@ class KWTAScheduler:
     def __init__(self, model: nn.Module, step_size: int, gamma_sparsity=0.5, min_sparsity=0.05,
                  gamma_hardness=2.0, max_hardness=10):
         self.kwta_layers = tuple(find_layers(model, layer_class=KWinnersTakeAll))
-        if not any(self.kwta_layers):
-            self.env_name = self.env_name + " (TrainerGrad)"
         self.step_size = step_size
         self.gamma_sparsity = gamma_sparsity
         self.min_sparsity = min_sparsity
@@ -63,6 +61,8 @@ class TrainerGradKWTA(TrainerGrad):
                  **kwargs):
         super().__init__(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
                          scheduler=scheduler, **kwargs)
+        if not any(find_layers(self.model, layer_class=KWinnersTakeAll)):
+            self.env_name = self.env_name + " (TrainerGrad)"
         self.kwta_scheduler = kwta_scheduler
         if self.kwta_scheduler is not None and isinstance(self.criterion, LossFixedPattern):
             warnings.warn(f"{self.kwta_scheduler.__class__.__name__} is not recommended to use with "
