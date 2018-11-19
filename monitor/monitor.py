@@ -19,13 +19,28 @@ from utils.normalize import get_normalize_inverse
 
 
 class ParamRecord(object):
-    def __init__(self, param: nn.Parameter):
+    def __init__(self, param: nn.Parameter, is_monitored=False):
         self.param = param
-        self.is_monitored = False
+        self.is_monitored = is_monitored
         self.grad_variance = VarianceOnline()
         self.prev_sign = None
         self.initial_data = None
         self.initial_norm = param.data.norm(p=2).item()
+
+    def update_signs(self) -> float:
+        param = self.param
+        new_data = param.data.cpu()
+        if new_data is param.data:
+            new_data = new_data.clone()
+        if self.prev_sign is None:
+            self.prev_sign = new_data
+        sign_flips = (new_data * self.prev_sign < 0).sum().item()
+        self.prev_sign = new_data
+        return sign_flips
+
+    def update_grad_variance(self):
+        if self.param.grad is not None:
+            self.grad_variance.update(self.param.grad.data.cpu())
 
 
 class ParamsDict(UserDict):
@@ -36,17 +51,11 @@ class ParamsDict(UserDict):
 
     def batch_finished(self):
         self.n_updates += 1
-        for param_record in filter(lambda precord: precord.prev_sign is not None, self.values()):
-            param = param_record.param
-            new_data = param.data.cpu()
-            if new_data is param.data:
-                new_data = new_data.clone()
-            self.sign_flips += (new_data * param_record.prev_sign < 0).sum().item()
-            param_record.prev_sign = new_data
+        for param_record in filter(lambda precord: precord.is_monitored, self.values()):
+            self.sign_flips += param_record.update_signs()
+            param_record.update_grad_variance()
 
     def plot_sign_flips(self, viz: VisdomMighty):
-        for param_record in filter(lambda precord: precord.prev_sign is None, self.values()):
-            param_record.prev_sign = param_record.param.data.cpu().clone()
         viz.line_update(y=self.sign_flips / self.n_updates, opts=dict(
             xlabel='Epoch',
             ylabel='Sign flips',
@@ -68,7 +77,7 @@ class Monitor(object):
         self.test_loader = test_loader
         self.viz = None
         self.normalize_inverse = None
-        self.advanced_monitoring = False  # memory consuming
+        self._advanced_monitoring = False  # memory consuming
         if self.test_loader is not None:
             self.normalize_inverse = get_normalize_inverse(self.test_loader.dataset.transform)
         self.accuracy_measure = accuracy_measure
@@ -80,6 +89,11 @@ class Monitor(object):
     @property
     def is_active(self):
         return self.viz is not None
+
+    def advanced_monitoring(self):
+        self._advanced_monitoring = True
+        for param_record in self.param_records.values():
+            param_record.is_monitored = True
 
     def open(self, env_name: str):
         """
@@ -156,24 +170,38 @@ class Monitor(object):
                     title=name,
                 ))
 
-    def update_gradient_mean_std(self):
+    def update_gradient_signal_to_noise_ratio(self):
+        # todo signal to noise ratio even with no advanced monitoring
+        frobenius_norm = lambda tensor: tensor.pow(2).sum().sqrt()
+        snr = []
+        legend = []
         for name, param_record in self.param_records.items():
             param = param_record.param
             if param.grad is None:
                 continue
-            param_record.grad_variance.update(param.grad.data.cpu())
             mean, std = param_record.grad_variance.get_mean_std()
+            param_record.grad_variance.reset()
             param_norm = param.data.norm(p=2).item()
-            mean = mean.norm(p=2) / param_norm
-            std = std.mean() / param_norm
+            mean = frobenius_norm(mean) / param_norm
+            std = frobenius_norm(std) / param_norm
+            snr.append(mean / std)
+            legend.append(name)
             self.viz.line_update(y=[mean, std], opts=dict(
                 xlabel='Epoch',
                 ylabel='Normalized Mean and STD',
                 title=f'Gradient Mean and STD: {name}',
-                legend=['||Mean(∇Wi)||', 'STD(∇Wi)'],
+                legend=['||Mean(∇Wi)||', '||STD(∇Wi)||'],
                 xtype='log',
                 ytype='log',
             ))
+        self.viz.line_update(y=snr, opts=dict(
+            xlabel='Epoch',
+            ylabel='||Mean(∇Wi)|| / ||STD(∇Wi)||',
+            title='Signal to Noise Ratio',
+            legend=legend,
+            xtype='log',
+            ytype='log',
+        ))
 
     def plot_accuracy_confusion_matrix(self, labels_true, labels_predicted, mode):
         self.update_accuracy(accuracy=calc_accuracy(labels_true, labels_predicted), mode=mode)
@@ -251,8 +279,8 @@ class Monitor(object):
         ))
 
     def update_mutual_info(self):
-        for layer_name, estimated_accuracy in self.mutual_info.estimate_accuracy().items():
-            self.update_accuracy(accuracy=estimated_accuracy, mode=layer_name)
+        # for layer_name, estimated_accuracy in self.mutual_info.estimate_accuracy().items():
+        #     self.update_accuracy(accuracy=estimated_accuracy, mode=layer_name)
         self.mutual_info.plot(self.viz)
 
     def epoch_finished(self, model: nn.Module, outputs_full, labels_full):
@@ -267,16 +295,16 @@ class Monitor(object):
             self.update_density(outputs_full, mode='full train')
             self.activations_heatmap(outputs_full, labels_full)
             self.firing_frequency(outputs_full)
-        if self.advanced_monitoring:
+        if self._advanced_monitoring:
             self.param_records.plot_sign_flips(self.viz)
-            self.update_gradient_mean_std()
+            self.update_gradient_signal_to_noise_ratio()
             self.update_initial_difference()
 
     def register_layer(self, layer: nn.Module, prefix: str):
         self.mutual_info.register(layer, name=prefix)
         for name, param in layer.named_parameters(prefix=prefix):
-            if param.requires_grad:
-                self.param_records[name] = ParamRecord(param)
+            if param.requires_grad and not name.endswith('.bias'):
+                self.param_records[name] = ParamRecord(param, is_monitored=self._advanced_monitoring)
 
     def update_sparsity(self, outputs, mode: str):
         outputs = outputs.detach()

@@ -85,7 +85,9 @@ class MutualInfo(ABC):
         return f"estimate_size={self.estimate_size}"
 
     def register(self, layer: nn.Module, name: str):
-        self.layer_to_name[layer] = name
+        if not isinstance(layer, nn.Conv2d):
+            # ignore conv layers: the estimate is poor
+            self.layer_to_name[layer] = name
 
     @ScheduleExp()
     def force_update(self, model: nn.Module):
