@@ -1,8 +1,7 @@
-import math
 import os
 import time
 from collections import namedtuple, defaultdict
-from functools import lru_cache, wraps
+from functools import wraps
 from pathlib import Path
 
 import numpy as np
@@ -15,27 +14,8 @@ from utils.constants import DATA_DIR, MODELS_DIR, BATCH_SIZE
 from utils.datasubset import MNIST56, FashionMNIST56, CIFAR10_56
 from utils.normalize import NormalizeFromDataset
 
-DATASET_IMAGE_SIZE = {
-    "MNIST": 28,
-    "FashionMNIST": 28,
-    "CIFAR10": 32,
-}
-
 
 AdversarialExamples = namedtuple("AdversarialExamples", ("original", "adversarial", "labels"))
-
-
-@lru_cache(maxsize=32, typed=False)
-def factors_root(number: int):
-    """
-    :param number: an integer value
-    :return: two integer factors, closest to the square root of the input
-    """
-    root = int(math.sqrt(number))
-    for divisor in range(root, 0, -1):
-        if number % divisor == 0:
-            return divisor, number // divisor
-    return 1, number
 
 
 def set_seed(seed: int):

@@ -3,8 +3,9 @@ import torch
 import torch.utils.data
 
 from models.kwta import _KWinnersTakeAllFunction
+from utils.algebra import factors_root
+from utils.common import get_data_loader
 from utils.normalize import get_normalize_inverse
-from utils.common import get_data_loader, factors_root
 
 
 def torch_to_matplotlib(image):
