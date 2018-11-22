@@ -14,7 +14,8 @@ from monitor.batch_timer import timer
 from monitor.monitor import Monitor
 from monitor.var_online import MeanOnline
 from trainer.mask import MaskTrainer
-from utils.common import get_data_loader, AdversarialExamples
+from utils.common import get_data_loader
+from utils.domain import AdversarialExamples
 from utils.constants import CHECKPOINTS_DIR
 from utils.layers import find_named_layers
 from utils.prepare import prepare_eval

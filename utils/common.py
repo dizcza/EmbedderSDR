@@ -1,6 +1,6 @@
 import os
 import time
-from collections import namedtuple, defaultdict
+from collections import defaultdict
 from functools import wraps
 from pathlib import Path
 
@@ -13,9 +13,6 @@ from utils.caltech import Caltech256, Caltech10
 from utils.constants import DATA_DIR, MODELS_DIR, BATCH_SIZE
 from utils.datasubset import MNIST56, FashionMNIST56, CIFAR10_56
 from utils.normalize import NormalizeFromDataset
-
-
-AdversarialExamples = namedtuple("AdversarialExamples", ("original", "adversarial", "labels"))
 
 
 def set_seed(seed: int):

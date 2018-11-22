@@ -14,14 +14,14 @@ from monitor.batch_timer import timer, ScheduleStep
 from monitor.mutual_info import MutualInfoKMeans, MutualInfoNeuralEstimation
 from monitor.var_online import VarianceOnline
 from monitor.viz import VisdomMighty
-from utils.common import AdversarialExamples
+from utils.domain import AdversarialExamples, MonitorLevel
 from utils.normalize import get_normalize_inverse
 
 
 class ParamRecord(object):
-    def __init__(self, param: nn.Parameter, is_monitored=False):
+    def __init__(self, param: nn.Parameter, monitor_level: MonitorLevel = MonitorLevel.DISABLED):
         self.param = param
-        self.is_monitored = is_monitored
+        self.monitor_level = monitor_level
         self.grad_variance = VarianceOnline()
         self.prev_sign = None
         self.initial_data = None
@@ -51,9 +51,11 @@ class ParamsDict(UserDict):
 
     def batch_finished(self):
         self.n_updates += 1
-        for param_record in filter(lambda precord: precord.is_monitored, self.values()):
-            self.sign_flips += param_record.update_signs()
+        for param_record in filter(lambda precord: precord.monitor_level.value >= MonitorLevel.SIGNAL_TO_NOISE.value,
+                                   self.values()):
             param_record.update_grad_variance()
+        for param_record in filter(lambda precord: precord.monitor_level is MonitorLevel.FULL, self.values()):
+            self.sign_flips += param_record.update_signs()
 
     def plot_sign_flips(self, viz: VisdomMighty):
         viz.line_update(y=self.sign_flips / self.n_updates, opts=dict(
@@ -77,7 +79,7 @@ class Monitor(object):
         self.test_loader = test_loader
         self.viz = None
         self.normalize_inverse = None
-        self._advanced_monitoring = False  # memory consuming
+        self._advanced_monitoring_level = MonitorLevel.DISABLED  # memory consuming
         if self.test_loader is not None:
             self.normalize_inverse = get_normalize_inverse(self.test_loader.dataset.transform)
         self.accuracy_measure = accuracy_measure
@@ -90,10 +92,10 @@ class Monitor(object):
     def is_active(self):
         return self.viz is not None
 
-    def advanced_monitoring(self):
-        self._advanced_monitoring = True
+    def advanced_monitoring(self, level: MonitorLevel = MonitorLevel.DISABLED):
+        self._advanced_monitoring_level = level
         for param_record in self.param_records.values():
-            param_record.is_monitored = True
+            param_record.monitor_level = level
 
     def open(self, env_name: str):
         """
@@ -112,7 +114,8 @@ class Monitor(object):
         self.log(lines)
 
     def log_self(self):
-        self.log(f"{self.__class__.__name__}(accuracy_measure={self.accuracy_measure.__class__.__name__})")
+        self.log(f"{self.__class__.__name__}(accuracy_measure={self.accuracy_measure.__class__.__name__}, "
+                 f"level={self._advanced_monitoring_level})")
         self.log(repr(self.mutual_info))
         self.log(f"FULL_FORWARD_PASS_SIZE: {os.environ.get('FULL_FORWARD_PASS_SIZE', '(all samples)')}")
         self.log(f"BATCH_SIZE: {os.environ.get('BATCH_SIZE', '(default)')}")
@@ -171,8 +174,6 @@ class Monitor(object):
                 ))
 
     def update_gradient_signal_to_noise_ratio(self):
-        # todo signal to noise ratio even with no advanced monitoring
-        frobenius_norm = lambda tensor: tensor.pow(2).sum().sqrt()
         snr = []
         legend = []
         for name, param_record in self.param_records.items():
@@ -181,19 +182,23 @@ class Monitor(object):
                 continue
             mean, std = param_record.grad_variance.get_mean_std()
             param_record.grad_variance.reset()
-            param_norm = param.data.norm(p=2).item()
-            mean = frobenius_norm(mean) / param_norm
-            std = frobenius_norm(std) / param_norm
+            param_norm = param.data.norm(p=2).cpu()
+
+            # matrix Frobenius norm is L2 norm
+            mean = mean.norm(p=2) / param_norm
+            std = std.norm(p=2) / param_norm
+
             snr.append(mean / std)
             legend.append(name)
-            self.viz.line_update(y=[mean, std], opts=dict(
-                xlabel='Epoch',
-                ylabel='Normalized Mean and STD',
-                title=f'Gradient Mean and STD: {name}',
-                legend=['||Mean(∇Wi)||', '||STD(∇Wi)||'],
-                xtype='log',
-                ytype='log',
-            ))
+            if self._advanced_monitoring_level is MonitorLevel.FULL:
+                self.viz.line_update(y=[mean, std], opts=dict(
+                    xlabel='Epoch',
+                    ylabel='Normalized Mean and STD',
+                    title=f'Gradient Mean and STD: {name}',
+                    legend=['||Mean(∇Wi)||', '||STD(∇Wi)||'],
+                    xtype='log',
+                    ytype='log',
+                ))
         self.viz.line_update(y=snr, opts=dict(
             xlabel='Epoch',
             ylabel='||Mean(∇Wi)|| / ||STD(∇Wi)||',
@@ -261,6 +266,7 @@ class Monitor(object):
                 outputs = model(image_example.unsqueeze(dim=0))
             proba = mask_trainer.get_probability(outputs=outputs, label=label)
             return proba
+
         mask, loss_trace, image_perturbed = mask_trainer.train_mask(model=model, image=image, label_true=label)
         proba_original = forward_probability(image)
         proba_perturbed = forward_probability(image_perturbed)
@@ -273,7 +279,7 @@ class Monitor(object):
         self.viz.images(images_stacked, nrow=len(images_stacked), win=f'masked images {win_suffix}', opts=dict(
             title=f"Masked image decreases neuron '{label}' probability {proba_original:.4f} -> {proba_perturbed:.4f}"
         ))
-        self.viz.line(Y=loss_trace, X=np.arange(1, len(loss_trace)+1), win=f'mask loss {win_suffix}', opts=dict(
+        self.viz.line(Y=loss_trace, X=np.arange(1, len(loss_trace) + 1), win=f'mask loss {win_suffix}', opts=dict(
             xlabel='Iteration',
             title='Mask loss'
         ))
@@ -295,16 +301,17 @@ class Monitor(object):
             self.update_density(outputs_full, mode='full train')
             self.activations_heatmap(outputs_full, labels_full)
             self.firing_frequency(outputs_full)
-        if self._advanced_monitoring:
-            self.param_records.plot_sign_flips(self.viz)
+        if self._advanced_monitoring_level.value >= MonitorLevel.SIGNAL_TO_NOISE.value:
             self.update_gradient_signal_to_noise_ratio()
+        if self._advanced_monitoring_level is MonitorLevel.FULL:
+            self.param_records.plot_sign_flips(self.viz)
             self.update_initial_difference()
 
     def register_layer(self, layer: nn.Module, prefix: str):
         self.mutual_info.register(layer, name=prefix)
         for name, param in layer.named_parameters(prefix=prefix):
             if param.requires_grad and not name.endswith('.bias'):
-                self.param_records[name] = ParamRecord(param, is_monitored=self._advanced_monitoring)
+                self.param_records[name] = ParamRecord(param, monitor_level=self._advanced_monitoring_level)
 
     def update_sparsity(self, outputs, mode: str):
         outputs = outputs.detach()
@@ -366,6 +373,7 @@ class Monitor(object):
         :param outputs: the last layer activations
         :param labels: corresponding labels
         """
+
         def compute_manhattan_dist(tensor: torch.FloatTensor) -> float:
             l1_dist = pairwise.manhattan_distances(tensor.cpu())
             upper_triangle_idx = np.triu_indices_from(l1_dist, k=1)
