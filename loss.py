@@ -52,6 +52,24 @@ class ContrastiveLoss(nn.Module, ABC):
                 dist = dist.mean()
             return dist
 
+    def forward_mean(self, outputs, labels):
+        """
+        :param outputs: (B, D) embeddings
+        :param labels: (B,) labels
+        :return: same-other loss on mean activations only
+        """
+        labels_unique = labels.unique(sorted=True).tolist()
+        outputs_mean = []
+        for label in labels_unique:
+            outputs_mean.append(outputs[labels == label].mean(dim=0))
+        outputs_mean = torch.stack(outputs_mean)
+        loss = 0
+        for label_id, label_same in enumerate(labels_unique[:-1]):
+            outputs_same = outputs_mean[label_same].unsqueeze(dim=0)
+            dist = self.distance(outputs_same, outputs_mean[label_id + 1:], is_same=False, reduction='elementwise_mean')
+            loss = loss + dist
+        return loss
+
 
 class LossFixedPattern(ContrastiveLoss, SerializableModule):
     state_attr = ['patterns']
@@ -85,20 +103,23 @@ class LossFixedPattern(ContrastiveLoss, SerializableModule):
 
 class ContrastiveLossBatch(ContrastiveLoss):
 
-    def __init__(self, metric='cosine', eps=1e-7, random_pairs=False, synaptic_scale=0):
+    def __init__(self, metric='cosine', eps=1e-7, random_pairs=False, synaptic_scale=0, mean_loss_coef=0):
         """
         :param metric: cosine, l2 or l1 metric to measure the distance between embeddings
         :param eps: threshold to skip negligible same-other loss
         :param random_pairs: select random pairs or use all pairwise combinations
         :param synaptic_scale: synaptic scale constant loss factor to keep neurons activation rate same
+        :param mean_loss_coef: coefficient of same-other loss on mean activations only
         """
         super().__init__(metric=metric, eps=eps)
         self.random_pairs = random_pairs
         self.synaptic_scale = synaptic_scale
+        self.mean_loss_coef = mean_loss_coef
 
     def extra_repr(self):
         old_repr = super().extra_repr()
-        return f'{old_repr}, random_pairs={self.random_pairs}, synaptic_scale={self.synaptic_scale}'
+        return f'{old_repr}, random_pairs={self.random_pairs}, synaptic_scale={self.synaptic_scale}, ' \
+            f'mean_loss_coef={self.mean_loss_coef}'
 
     def forward_random(self, outputs, labels):
         dist_same = []
@@ -165,7 +186,17 @@ class ContrastiveLossBatch(ContrastiveLoss):
             loss_other = dist_other.mean()
         else:
             loss_other = 0
-        loss_frequency = (outputs.mean(dim=0) - outputs.mean()).std()
-        loss = loss_same + loss_other + self.synaptic_scale * loss_frequency
+
+        if self.synaptic_scale > 0:
+            loss_frequency = self.synaptic_scale * (outputs.mean(dim=0) - outputs.mean()).std()
+        else:
+            loss_frequency = 0
+
+        if self.mean_loss_coef > 0:
+            loss_mean = self.mean_loss_coef * self.forward_mean(outputs, labels)
+        else:
+            loss_mean = 0
+
+        loss = loss_same + loss_other + loss_frequency + loss_mean
 
         return loss
