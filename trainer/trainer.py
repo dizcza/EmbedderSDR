@@ -100,7 +100,7 @@ class Trainer(ABC):
             print(f"Error is occurred while restoring {checkpoint_path}: {error}")
             return None
         self.env_name = checkpoint_state['env_name']
-        self.timer.set_epoch(checkpoint_state['epoch'] - 1)  # timer.epoch is one-indexed
+        self.timer.set_epoch(checkpoint_state['epoch'])
         self.monitor.open(env_name=self.env_name)
         print(f"Restored model state from {checkpoint_path}.")
         return checkpoint_state

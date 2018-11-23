@@ -15,7 +15,7 @@ class BatchTimer(object):
 
     @property
     def epoch(self):
-        return int(self.epoch_progress()) + 1
+        return int(self.epoch_progress())
 
     def epoch_progress(self):
         return self.batch_id / self.batches_in_epoch
