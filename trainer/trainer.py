@@ -2,6 +2,7 @@ import time
 import warnings
 from abc import ABC, abstractmethod
 from functools import partial, update_wrapper
+from pathlib import Path
 
 import torch
 import torch.nn as nn
@@ -15,8 +16,8 @@ from monitor.monitor import Monitor
 from monitor.var_online import MeanOnline
 from trainer.mask import MaskTrainer
 from utils.common import get_data_loader
-from utils.domain import AdversarialExamples
 from utils.constants import CHECKPOINTS_DIR
+from utils.domain import AdversarialExamples
 from utils.layers import find_named_layers
 from utils.prepare import prepare_eval
 
@@ -24,12 +25,14 @@ from utils.prepare import prepare_eval
 class Trainer(ABC):
     watch_modules = (nn.Linear, nn.Conv2d)
 
-    def __init__(self, model: nn.Module, criterion: nn.Module, dataset_name: str, env_suffix=''):
+    def __init__(self, model: nn.Module, criterion: nn.Module, dataset_name: str, env_suffix='',
+                 checkpoint_dir=CHECKPOINTS_DIR):
         if torch.cuda.is_available():
             model = model.cuda()
         self.model = model
         self.criterion = criterion
         self.dataset_name = dataset_name
+        self.checkpoint_dir = Path(checkpoint_dir)
         self.train_loader = get_data_loader(dataset_name, train=True)
         self.timer = timer
         self.timer.init(batches_in_epoch=len(self.train_loader))
@@ -50,7 +53,7 @@ class Trainer(ABC):
 
     @property
     def checkpoint_path(self):
-        return CHECKPOINTS_DIR / (self.env_name + '.pt')
+        return self.checkpoint_dir / (self.env_name + '.pt')
 
     def monitor_functions(self):
         pass
