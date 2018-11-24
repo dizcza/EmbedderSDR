@@ -24,10 +24,10 @@ class VisdomMighty(visdom.Visdom):
         self.register_plot(win='Accuracy', legend=['full train', 'full test'])
 
     def register_plot(self, win: str, legend: Iterable[str]):
-        if self.win_exists(win):
-            return
         legend = list(legend)
         self.legends[win] = legend
+        if self.win_exists(win):
+            return
         nan = np.full(shape=(1, len(legend)), fill_value=np.nan)
         self.line(X=nan, Y=nan, win=win, opts=dict(legend=legend))
 
