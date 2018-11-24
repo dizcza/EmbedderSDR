@@ -39,6 +39,14 @@ class KWTAScheduler:
                     layer.hardness = min(layer.hardness * self.gamma_hardness, self.max_hardness)
             self.last_epoch_update = epoch
 
+    def state_dict(self):
+        return {
+            'last_epoch_update': self.last_epoch_update
+        }
+
+    def load_state_dict(self, state_dict: dict):
+        self.last_epoch_update = state_dict['last_epoch_update']
+
     def extra_repr(self):
         return f"step_size={self.step_size}, Sparsity(gamma={self.gamma_sparsity}, min={self.min_sparsity}), " \
                f"Hardness(gamma={self.gamma_hardness}, max={self.max_hardness})"
@@ -145,7 +153,13 @@ class TrainerGradKWTA(TrainerGrad):
         mode_saved.restore(self.model)
         return image, label
 
+    def state_dict(self):
+        state = super().state_dict()
+        state['kwta_scheduler'] = self.kwta_scheduler.state_dict()
+        return state
+
     def restore(self, checkpoint_path=None, strict=True):
         checkpoint_state = super().restore(checkpoint_path=checkpoint_path, strict=strict)
-        self.kwta_scheduler.last_epoch_update = self.timer.epoch - 1
+        if checkpoint_state is not None:
+            self.kwta_scheduler.load_state_dict(checkpoint_state['kwta_scheduler'])
         return checkpoint_state
