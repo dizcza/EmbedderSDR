@@ -130,7 +130,7 @@ class Monitor(object):
     def batch_finished(self, model: nn.Module):
         self.param_records.batch_finished()
         self.timer.tick()
-        if self.timer.epoch == 1:
+        if self.timer.epoch == 0:
             self.mutual_info.force_update(model)
             self.update_mutual_info()
 

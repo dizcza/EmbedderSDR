@@ -62,6 +62,7 @@ class AccuracyFromMutualInfo:
 class MutualInfo(ABC):
     log2e = math.log2(math.e)
     n_bins_default = 20
+    ignore_layers = (nn.Conv2d,)  # poor estimate
 
     def __init__(self, estimate_size=float('inf'), debug=False):
         """
@@ -85,8 +86,7 @@ class MutualInfo(ABC):
         return f"estimate_size={self.estimate_size}"
 
     def register(self, layer: nn.Module, name: str):
-        if not isinstance(layer, nn.Conv2d):
-            # ignore conv layers: the estimate is poor
+        if not isinstance(layer, self.ignore_layers):
             self.layer_to_name[layer] = name
 
     @ScheduleExp()
