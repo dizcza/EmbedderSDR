@@ -6,4 +6,4 @@ Trained on same-same class examples with Contrastive loss, embedding representat
 
 The short answer is _no_.
 
-See the [results](http://ec2-34-227-113-244.compute-1.amazonaws.com:8099) for MNIST56 dataset (a subset of 5 and 6 digits of MNIST so that any can play with). Choose the environment for `EmbedderSDR` project. Watch for mutual information of `kwta` (k-winners-take-all) layer, which is the last layer in this NN.
+See the [results](http://ec2-18-234-90-227.compute-1.amazonaws.com:8097) for MNIST56 dataset (a subset of 5 and 6 digits of MNIST so that any can play with). Choose the environment for `EmbedderSDR` project. Watch for mutual information of `kwta` (k-winners-take-all) layer, which is the last layer in this NN.
