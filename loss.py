@@ -12,14 +12,13 @@ from utils.layers import SerializableModule
 
 class ContrastiveLoss(nn.Module, ABC):
 
-    def __init__(self, metric='cosine', eps=1e-7):
+    def __init__(self, metric='cosine'):
         """
         :param metric: cosine, l2 or l1 metric to measure the distance between embeddings
-        :param eps: threshold to skip negligible same-other loss
         """
         super().__init__()
         self.metric = metric
-        self.eps = eps
+        self.eps = 1e-6
         if self.metric == 'cosine':
             self.margin = 0.5
         else:
@@ -37,20 +36,25 @@ class ContrastiveLoss(nn.Module, ABC):
     def extra_repr(self):
         return f'metric={self.metric}, margin={self.margin}'
 
-    def distance(self, input1, input2, is_same: bool, reduction='none'):
+    @staticmethod
+    def filter_nonzero(outputs, labels):
+        nonzero = (outputs != 0).any(dim=1)
+        return outputs[nonzero], labels[nonzero]
+
+    @staticmethod
+    def mean_nonempty(distances):
+        return 0 if len(distances) == 0 else distances.mean()
+
+    def distance(self, input1, input2):
         if self.metric == 'cosine':
-            targets = torch.ones(max(len(input1), len(input2)), device=input1.device)
-            if not is_same:
-                targets *= -1
-            return F.cosine_embedding_loss(input1, input2, target=targets, margin=self.margin, reduction=reduction)
+            dist = 1 - F.cosine_similarity(input1, input2, dim=1)
+        elif self.metric == 'l1':
+            dist = (input1 - input2).abs().sum(dim=1)
+        elif self.metric == 'l2':
+            dist = (input1 - input2).pow(2).sum(dim=1)
         else:
-            dist = (input1 - input2).norm(p=self.power, dim=1)
-            if not is_same:
-                zeros = torch.zeros_like(dist, device=dist.device)
-                dist = torch.max(zeros, self.margin - dist)
-            if reduction == 'elementwise_mean':
-                dist = dist.mean()
-            return dist
+            raise NotImplementedError
+        return dist
 
     def forward_mean(self, outputs, labels):
         """
@@ -66,23 +70,21 @@ class ContrastiveLoss(nn.Module, ABC):
         loss = 0
         for label_id, label_same in enumerate(labels_unique[:-1]):
             outputs_same = outputs_mean[label_same].unsqueeze(dim=0)
-            dist = self.distance(outputs_same, outputs_mean[label_id + 1:], is_same=False, reduction='elementwise_mean')
-            loss = loss + dist
+            dist = self.distance(outputs_same, outputs_mean[label_id + 1:])
+            loss = loss + dist.mean()
         return loss
 
 
 class LossFixedPattern(ContrastiveLoss, SerializableModule):
     state_attr = ['patterns']
 
-    def __init__(self, sparsity: float, metric='cosine', eps=1e-7):
-        super().__init__(metric=metric, eps=eps)
+    def __init__(self, sparsity: float, metric='cosine'):
+        super().__init__(metric=metric)
         self.patterns = {}
         self.sparsity = sparsity
 
     def forward(self, outputs, labels):
-        nonzero = (outputs != 0).any(dim=1)
-        outputs = outputs[nonzero]
-        labels = labels[nonzero]
+        outputs, labels = self.filter_nonzero(outputs, labels)
         embedding_dim = outputs.shape[1]
         n_active = math.ceil(self.sparsity * embedding_dim)
         loss = 0
@@ -95,23 +97,22 @@ class LossFixedPattern(ContrastiveLoss, SerializableModule):
             outputs_same_label = outputs[labels == label]
             pattern = torch.as_tensor(self.patterns[label], device=outputs_same_label.device)
             pattern = pattern.expand_as(outputs_same_label)
-            dist = self.distance(outputs_same_label, pattern, is_same=True, reduction='elementwise_mean')
-            loss = loss + dist
+            dist = self.distance(outputs_same_label, pattern)
+            loss = loss + dist.mean()
 
         return loss
 
 
 class ContrastiveLossBatch(ContrastiveLoss):
 
-    def __init__(self, metric='cosine', eps=1e-7, random_pairs=False, synaptic_scale=0, mean_loss_coef=0):
+    def __init__(self, metric='cosine', random_pairs=False, synaptic_scale=0, mean_loss_coef=0):
         """
         :param metric: cosine, l2 or l1 metric to measure the distance between embeddings
-        :param eps: threshold to skip negligible same-other loss
         :param random_pairs: select random pairs or use all pairwise combinations
         :param synaptic_scale: synaptic scale constant loss factor to keep neurons activation rate same
         :param mean_loss_coef: coefficient of same-other loss on mean activations only
         """
-        super().__init__(metric=metric, eps=eps)
+        super().__init__(metric=metric)
         self.random_pairs = random_pairs
         self.synaptic_scale = synaptic_scale
         self.mean_loss_coef = mean_loss_coef
@@ -121,24 +122,20 @@ class ContrastiveLossBatch(ContrastiveLoss):
         return f'{old_repr}, random_pairs={self.random_pairs}, synaptic_scale={self.synaptic_scale}, ' \
             f'mean_loss_coef={self.mean_loss_coef}'
 
-    def forward_random(self, outputs, labels):
-        dist_same = []
-        dist_other = []
-        labels_unique = labels.unique()
-        for label_id, label_same in enumerate(labels_unique):
-            mask_same = labels == label_same
-            outputs_same_label = outputs[mask_same]
-            n_same = len(outputs_same_label)
-            if n_same > 1:
-                dist = self.distance(outputs_same_label[1:], outputs_same_label[:-1], is_same=True)
-                dist_same.append(dist)
+    def forward_random(self, outputs, labels, sample_multiplier=2, leave_hardest=0.5):
+        n_samples = len(outputs)
+        weights = torch.ones(n_samples)
+        left_indices = torch.multinomial(weights, sample_multiplier * n_samples, replacement=True).to(device=outputs.device)
+        right_indices = torch.multinomial(weights, sample_multiplier * n_samples, replacement=True).to(device=outputs.device)
+        dist = self.distance(outputs[left_indices], outputs[right_indices])
+        is_same = labels[left_indices] == labels[right_indices]
 
-            other_idx = np.arange(len(labels))[~mask_same.cpu()]
-            other_idx = np.random.choice(other_idx, size=n_same, replace=len(other_idx) < n_same)
-            other_idx = torch.as_tensor(other_idx, device=outputs.device)
-            outputs_other_label = outputs[other_idx]
-            dist = self.distance(outputs_other_label, outputs_same_label, is_same=False)
-            dist_other.append(dist)
+        dist_same, _unused = dist[is_same].sort(descending=True)
+        dist_same = dist_same[: int(len(dist_same) * leave_hardest)]
+
+        dist_other, _unused = dist[~is_same].sort()
+        dist_other = dist_other[: int(len(dist_other) * leave_hardest)]
+
         return dist_same, dist_other
 
     def forward_pairwise(self, outputs, labels):
@@ -155,7 +152,7 @@ class ContrastiveLossBatch(ContrastiveLoss):
                 upper_triangle_idx = np.triu_indices(n=n_same, k=1)
                 upper_triangle_idx = torch.as_tensor(upper_triangle_idx, device=outputs_same_label.device)
                 same_left, same_right = outputs_same_label[upper_triangle_idx]
-                dist_same.append(self.distance(same_left, same_right, is_same=True))
+                dist_same.append(self.distance(same_left, same_right))
 
             for label_other in labels_unique[label_id + 1:]:
                 outputs_other_label = outputs_sorted[label_other.item()]
@@ -163,14 +160,16 @@ class ContrastiveLossBatch(ContrastiveLoss):
                 n_max = max(n_same, n_other)
                 idx_same = torch.arange(n_max) % n_same
                 idx_other = torch.arange(n_max) % n_other
-                dist = self.distance(outputs_other_label[idx_other], outputs_same_label[idx_same], is_same=False)
+                dist = self.distance(outputs_other_label[idx_other], outputs_same_label[idx_same])
                 dist_other.append(dist)
+
+        dist_same = torch.cat(dist_same)
+        dist_other = torch.cat(dist_other)
+
         return dist_same, dist_other
 
     def forward(self, outputs, labels):
-        nonzero = (outputs != 0).any(dim=1)
-        outputs = outputs[nonzero]
-        labels = labels[nonzero]
+        outputs, labels = self.filter_nonzero(outputs, labels)
         if self.metric != 'cosine':
             outputs = outputs / outputs.norm(p=self.power, dim=1).mean()
         if self.random_pairs or timer.is_epoch_finished():
@@ -179,13 +178,10 @@ class ContrastiveLossBatch(ContrastiveLoss):
         else:
             dist_same, dist_other = self.forward_pairwise(outputs, labels)
 
-        loss_same = torch.cat(dist_same).mean()
-        dist_other = torch.cat(dist_other)
-        dist_other = dist_other[dist_other > self.eps]
-        if len(dist_other) > 0:
-            loss_other = dist_other.mean()
-        else:
-            loss_other = 0
+        dist_same = dist_same[dist_same > self.eps]
+        dist_other = dist_other[dist_other < self.margin]
+        loss_same = self.mean_nonempty(dist_same)
+        loss_other = self.mean_nonempty(self.margin - dist_other)
 
         if self.synaptic_scale > 0:
             loss_frequency = self.synaptic_scale * (outputs.mean(dim=0) - outputs.mean()).std()
