@@ -1,6 +1,6 @@
+.git/
 .idea/
-data/
 checkpoints/
+data/
 ignored/
 *.pyc
-*.lprof

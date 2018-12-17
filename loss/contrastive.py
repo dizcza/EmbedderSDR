@@ -10,11 +10,12 @@ from monitor.batch_timer import timer
 from utils.layers import SerializableModule
 
 
-class ContrastiveLoss(nn.Module, ABC):
+class PairLoss(nn.Module, ABC):
 
-    def __init__(self, metric='cosine'):
+    def __init__(self, metric='cosine', leave_hardest: float = 0.5):
         """
         :param metric: cosine, l2 or l1 metric to measure the distance between embeddings
+        :param leave_hardest: hard negative & positive mining
         """
         super().__init__()
         self.metric = metric
@@ -23,6 +24,7 @@ class ContrastiveLoss(nn.Module, ABC):
             self.margin = 0.5
         else:
             self.margin = 0.75
+        self.leave_hardest = leave_hardest
 
     @property
     def power(self):
@@ -34,7 +36,7 @@ class ContrastiveLoss(nn.Module, ABC):
             raise NotImplementedError
 
     def extra_repr(self):
-        return f'metric={self.metric}, margin={self.margin}'
+        return f'metric={self.metric}, margin={self.margin}, leave_hardest={self.leave_hardest}'
 
     @staticmethod
     def filter_nonzero(outputs, labels):
@@ -75,7 +77,7 @@ class ContrastiveLoss(nn.Module, ABC):
         return loss
 
 
-class LossFixedPattern(ContrastiveLoss, SerializableModule):
+class LossFixedPattern(PairLoss, SerializableModule):
     state_attr = ['patterns']
 
     def __init__(self, sparsity: float, metric='cosine'):
@@ -103,42 +105,74 @@ class LossFixedPattern(ContrastiveLoss, SerializableModule):
         return loss
 
 
-class ContrastiveLossBatch(ContrastiveLoss):
+class ContrastiveLossRandom(PairLoss):
 
-    def __init__(self, metric='cosine', random_pairs=False, synaptic_scale=0, mean_loss_coef=0):
+    def __init__(self, metric='cosine', leave_hardest: float = 0.5, synaptic_scale=0, mean_loss_coef=0):
         """
         :param metric: cosine, l2 or l1 metric to measure the distance between embeddings
-        :param random_pairs: select random pairs or use all pairwise combinations
+        :param leave_hardest: hard negative & positive mining
         :param synaptic_scale: synaptic scale constant loss factor to keep neurons activation rate same
         :param mean_loss_coef: coefficient of same-other loss on mean activations only
         """
-        super().__init__(metric=metric)
-        self.random_pairs = random_pairs
+        super().__init__(metric=metric, leave_hardest=leave_hardest)
         self.synaptic_scale = synaptic_scale
         self.mean_loss_coef = mean_loss_coef
 
     def extra_repr(self):
         old_repr = super().extra_repr()
-        return f'{old_repr}, random_pairs={self.random_pairs}, synaptic_scale={self.synaptic_scale}, ' \
-            f'mean_loss_coef={self.mean_loss_coef}'
+        return f'{old_repr}, synaptic_scale={self.synaptic_scale}, mean_loss_coef={self.mean_loss_coef}'
 
-    def forward_random(self, outputs, labels, sample_multiplier=2, leave_hardest=0.5):
+    def forward_contrastive(self, outputs, labels):
+        return self.forward_random(outputs, labels)
+
+    def forward_random(self, outputs, labels):
         n_samples = len(outputs)
-        weights = torch.ones(n_samples)
-        left_indices = torch.multinomial(weights, sample_multiplier * n_samples, replacement=True).to(device=outputs.device)
-        right_indices = torch.multinomial(weights, sample_multiplier * n_samples, replacement=True).to(device=outputs.device)
+        n_unique = len(labels.unique(sorted=False))  # probability of two random samples having same class is 1/n_unique
+        left_indices = torch.randint(low=0, high=n_samples, size=(n_unique * n_samples,), device=outputs.device)
+        right_indices = torch.randint(low=0, high=n_samples, size=(n_unique * n_samples,), device=outputs.device)
         dist = self.distance(outputs[left_indices], outputs[right_indices])
         is_same = labels[left_indices] == labels[right_indices]
 
         dist_same, _unused = dist[is_same].sort(descending=True)
-        dist_same = dist_same[: int(len(dist_same) * leave_hardest)]
+        dist_same = dist_same[: int(len(dist_same) * self.leave_hardest)]
 
         dist_other, _unused = dist[~is_same].sort()
-        dist_other = dist_other[: int(len(dist_other) * leave_hardest)]
+        dist_other = dist_other[: int(len(dist_other) * self.leave_hardest)]
 
         return dist_same, dist_other
 
-    def forward_pairwise(self, outputs, labels):
+    def forward(self, outputs, labels):
+        outputs, labels = self.filter_nonzero(outputs, labels)
+        if self.metric != 'cosine' and (self.synaptic_scale > 0 or self.mean_loss_coef > 0):
+            outputs = outputs / outputs.norm(p=self.power, dim=1).mean()
+        if timer.is_epoch_finished():
+            # if an epoch is finished, use random pairs no matter what the mode is
+            dist_same, dist_other = self.forward_random(outputs, labels)
+        else:
+            dist_same, dist_other = self.forward_contrastive(outputs, labels)
+
+        dist_same = dist_same[dist_same > self.eps]
+        loss_same = self.mean_nonempty(dist_same)
+        loss_other = torch.relu(self.margin - dist_other).mean()
+
+        if self.synaptic_scale > 0:
+            loss_frequency = self.synaptic_scale * (outputs.mean(dim=0) - outputs.mean()).std()
+        else:
+            loss_frequency = 0
+
+        if self.mean_loss_coef > 0:
+            loss_mean = self.mean_loss_coef * self.forward_mean(outputs, labels)
+        else:
+            loss_mean = 0
+
+        loss = loss_same + loss_other + loss_frequency + loss_mean
+
+        return loss
+
+
+class ContrastiveLossPairwise(ContrastiveLossRandom):
+
+    def forward_contrastive(self, outputs, labels):
         dist_same = []
         dist_other = []
         labels_unique = labels.unique()
@@ -167,32 +201,3 @@ class ContrastiveLossBatch(ContrastiveLoss):
         dist_other = torch.cat(dist_other)
 
         return dist_same, dist_other
-
-    def forward(self, outputs, labels):
-        outputs, labels = self.filter_nonzero(outputs, labels)
-        if self.metric != 'cosine':
-            outputs = outputs / outputs.norm(p=self.power, dim=1).mean()
-        if self.random_pairs or timer.is_epoch_finished():
-            # if an epoch is finished, use random pairs no matter what the mode is
-            dist_same, dist_other = self.forward_random(outputs, labels)
-        else:
-            dist_same, dist_other = self.forward_pairwise(outputs, labels)
-
-        dist_same = dist_same[dist_same > self.eps]
-        dist_other = dist_other[dist_other < self.margin]
-        loss_same = self.mean_nonempty(dist_same)
-        loss_other = self.mean_nonempty(self.margin - dist_other)
-
-        if self.synaptic_scale > 0:
-            loss_frequency = self.synaptic_scale * (outputs.mean(dim=0) - outputs.mean()).std()
-        else:
-            loss_frequency = 0
-
-        if self.mean_loss_coef > 0:
-            loss_mean = self.mean_loss_coef * self.forward_mean(outputs, labels)
-        else:
-            loss_mean = 0
-
-        loss = loss_same + loss_other + loss_frequency + loss_mean
-
-        return loss

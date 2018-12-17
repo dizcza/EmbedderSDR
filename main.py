@@ -8,7 +8,7 @@ from PIL import Image
 
 import models.caltech
 import models.cifar
-from loss import ContrastiveLossBatch, LossFixedPattern
+from loss import *
 from models import *
 from monitor.accuracy import AccuracyArgmax
 from monitor.monitor import Monitor
@@ -69,12 +69,12 @@ def train_grad(n_epoch=500, dataset_name="MNIST"):
     trainer.train(n_epoch=n_epoch, epoch_update_step=1, mutual_info_layers=10)
 
 
-def train_kwta(n_epoch=500, dataset_name="CIFAR10"):
+def train_kwta(n_epoch=500, dataset_name="MNIST"):
     kwta = KWinnersTakeAllSoft(sparsity=0.3)
     # kwta = SynapticScaling(kwta, synaptic_scale=3)
     model = EmbedderSDR(last_layer=kwta, dataset_name=dataset_name)
     optimizer, scheduler = get_optimizer_scheduler(model)
-    criterion = ContrastiveLossBatch(metric='cosine', random_pairs=False, synaptic_scale=0)
+    criterion = ContrastiveLossRandom(metric='cosine')
     # criterion = LossFixedPattern(sparsity=kwta.sparsity)
     kwta_scheduler = KWTAScheduler(model=model, step_size=15, gamma_sparsity=0.5, min_sparsity=0.05,
                                    gamma_hardness=2, max_hardness=10)
@@ -82,7 +82,7 @@ def train_kwta(n_epoch=500, dataset_name="CIFAR10"):
                               scheduler=scheduler, kwta_scheduler=kwta_scheduler, env_suffix='')
     # trainer.restore()
     trainer.monitor.advanced_monitoring(level=MonitorLevel.SIGNAL_TO_NOISE)
-    trainer.train(n_epoch=n_epoch, epoch_update_step=1, mutual_info_layers=3)
+    trainer.train(n_epoch=n_epoch, epoch_update_step=1, mutual_info_layers=0)
 
 
 def test(n_epoch=500, dataset_name="CIFAR10"):
@@ -102,7 +102,7 @@ def train_pretrained(n_epoch=500, dataset_name="CIFAR10"):
     kwta = KWinnersTakeAllSoft(sparsity=0.3)
     model.classifier = nn.Sequential(nn.Linear(1024, 128, bias=False), kwta)
     optimizer, scheduler = get_optimizer_scheduler(model)
-    criterion = ContrastiveLossBatch(metric='cosine')
+    criterion = ContrastiveLossRandom(metric='cosine')
     kwta_scheduler = KWTAScheduler(model=model, step_size=15, gamma_sparsity=0.5, min_sparsity=0.05,
                                    gamma_hardness=2, max_hardness=10)
     trainer = TrainerGradKWTA(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
@@ -116,7 +116,7 @@ def train_caltech(n_epoch=500, dataset_name="Caltech256"):
     kwta = KWinnersTakeAllSoft(sparsity=0.3)
     model = models.caltech.resnet18(kwta=kwta)
     if kwta:
-        criterion = ContrastiveLossBatch(metric='cosine', random_pairs=True)
+        criterion = ContrastiveLossRandom(metric='cosine')
         optimizer, scheduler = get_optimizer_scheduler(model)
         kwta_scheduler = KWTAScheduler(model=model, step_size=15, gamma_sparsity=0.5, min_sparsity=0.05,
                                        gamma_hardness=2, max_hardness=10)
@@ -133,8 +133,8 @@ def train_caltech(n_epoch=500, dataset_name="Caltech256"):
 if __name__ == '__main__':
     set_seed(26)
     torch.backends.cudnn.benchmark = True
-    # train_kwta()
-    train_grad()
+    train_kwta()
+    # train_grad()
     # test()
     # train_pretrained()
     # train_caltech()

@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.utils.data
 from tqdm import tqdm
 
-from loss import ContrastiveLoss
+from loss import PairLoss
 from monitor.accuracy import full_forward_pass, AccuracyEmbedding, AccuracyArgmax, calc_accuracy
 from monitor.batch_timer import timer
 from monitor.monitor import Monitor
@@ -37,10 +37,10 @@ class Trainer(ABC):
         self.timer = timer
         self.timer.init(batches_in_epoch=len(self.train_loader))
         self.env_name = f"{time.strftime('%Y.%m.%d')} {self.model.__class__.__name__}: " \
-                        f"{self.dataset_name} {self.__class__.__name__}"
+                        f"{self.dataset_name} {self.__class__.__name__} {self.criterion.__class__.__name__}"
         if env_suffix:
             self.env_name = self.env_name + f' {env_suffix}'
-        if isinstance(self.criterion, ContrastiveLoss):
+        if isinstance(self.criterion, PairLoss):
             self.accuracy_measure = AccuracyEmbedding()
         else:
             self.accuracy_measure = AccuracyArgmax()
