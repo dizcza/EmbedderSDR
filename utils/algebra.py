@@ -3,6 +3,7 @@ from functools import lru_cache
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 
 def exponential_moving_average(array, window: int):
@@ -41,3 +42,31 @@ def factors_root(number: int):
         if number % divisor == 0:
             return divisor, number // divisor
     return 1, number
+
+
+def pairwise_distances_matrix(input1, input2, metric='cosine'):
+    r"""Compute the matrix of all squared pairwise distances.
+    Arguments
+    ---------
+    input1 : torch.Tensor or Variable
+        The first sample, should be of shape ``(n_1, d)``.
+    input2 : torch.Tensor or Variable
+        The second sample, should be of shape ``(n_2, d)``.
+    metric : str
+        The l_p norm to be used. Available: 'cosine', 'l1', 'l2'.
+    Returns
+    -------
+    torch.Tensor or Variable
+        Matrix of shape (n_1, n_2). The [i, j]-th entry is equal to
+        ``|| sample_1[i, :] - sample_2[j, :] ||_p``."""
+    input1 = input1.unsqueeze(1)
+    input2 = input2.unsqueeze(0)
+    if metric == 'cosine':
+        dist = 1 - F.cosine_similarity(input1, input2, dim=2)
+    elif metric == 'l1':
+        dist = (input1 - input2).abs_().sum(dim=2)
+    elif metric == 'l2':
+        dist = (input1 - input2).pow_(2).sum(dim=2)
+    else:
+        raise NotImplementedError
+    return dist

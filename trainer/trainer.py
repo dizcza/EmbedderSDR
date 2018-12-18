@@ -10,7 +10,7 @@ import torch.utils.data
 from tqdm import tqdm
 
 from loss import PairLoss
-from monitor.accuracy import full_forward_pass, AccuracyEmbedding, AccuracyArgmax, calc_accuracy
+from monitor.accuracy import full_forward_pass, AccuracyEmbedding, AccuracyArgmax, Accuracy, calc_accuracy
 from monitor.batch_timer import timer
 from monitor.monitor import Monitor
 from monitor.var_online import MeanOnline
@@ -25,8 +25,8 @@ from utils.prepare import prepare_eval
 class Trainer(ABC):
     watch_modules = (nn.Linear, nn.Conv2d)
 
-    def __init__(self, model: nn.Module, criterion: nn.Module, dataset_name: str, env_suffix='',
-                 checkpoint_dir=CHECKPOINTS_DIR):
+    def __init__(self, model: nn.Module, criterion: nn.Module, dataset_name: str, accuracy_measure: Accuracy = None,
+                 env_suffix='', checkpoint_dir=CHECKPOINTS_DIR):
         if torch.cuda.is_available():
             model = model.cuda()
         self.model = model
@@ -40,10 +40,13 @@ class Trainer(ABC):
                         f"{self.dataset_name} {self.__class__.__name__} {self.criterion.__class__.__name__}"
         if env_suffix:
             self.env_name = self.env_name + f' {env_suffix}'
-        if isinstance(self.criterion, PairLoss):
-            self.accuracy_measure = AccuracyEmbedding()
-        else:
-            self.accuracy_measure = AccuracyArgmax()
+        if accuracy_measure is None:
+            if isinstance(self.criterion, PairLoss):
+                accuracy_measure = AccuracyEmbedding()
+            else:
+                # cross entropy loss
+                accuracy_measure = AccuracyArgmax()
+        self.accuracy_measure = accuracy_measure
         self.monitor = Monitor(test_loader=get_data_loader(self.dataset_name, train=False),
                                accuracy_measure=self.accuracy_measure)
         for name, layer in find_named_layers(self.model, layer_class=self.watch_modules):
@@ -189,7 +192,7 @@ class Trainer(ABC):
             # self.monitor.activations_heatmap(outputs, labels)
 
         self.monitor.update_loss(loss=loss_batch_average.get_mean(), mode='batch')
-        if isinstance(self.accuracy_measure, AccuracyEmbedding):
+        if not isinstance(self.accuracy_measure, AccuracyArgmax):
             self.monitor.update_sparsity(outputs, mode='batch')
             self.monitor.update_density(outputs, mode='batch')
 

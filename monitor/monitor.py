@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.utils.data
 from sklearn.metrics import confusion_matrix, pairwise
 
-from monitor.accuracy import calc_accuracy, full_forward_pass, Accuracy, AccuracyEmbedding
+from monitor.accuracy import calc_accuracy, full_forward_pass, Accuracy, AccuracyArgmax
 from monitor.batch_timer import timer, ScheduleStep
 from monitor.mutual_info import MutualInfoKMeans, MutualInfoNeuralEstimation
 from monitor.var_online import VarianceOnline
@@ -296,7 +296,7 @@ class Monitor(object):
         for monitored_function in self.functions:
             monitored_function(self.viz)
         self.update_grad_norm()
-        if isinstance(self.accuracy_measure, AccuracyEmbedding):
+        if not isinstance(self.accuracy_measure, AccuracyArgmax):
             self.update_sparsity(outputs_full, mode='full train')
             self.update_density(outputs_full, mode='full train')
             self.activations_heatmap(outputs_full, labels_full)

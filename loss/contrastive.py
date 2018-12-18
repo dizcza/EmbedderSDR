@@ -117,7 +117,7 @@ class LossFixedPattern(PairLoss, SerializableModule):
 
 class ContrastiveLossRandom(PairLoss):
 
-    def __init__(self, metric='cosine', leave_hardest: float = 0.5, synaptic_scale=0, mean_loss_coef=0):
+    def __init__(self, metric='cosine', leave_hardest: float = 1.0, synaptic_scale=0, mean_loss_coef=0):
         """
         :param metric: cosine, l2 or l1 metric to measure the distance between embeddings
         :param leave_hardest: hard negative & positive mining

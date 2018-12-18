@@ -3,7 +3,9 @@ from abc import ABC
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.utils.data
+import sklearn.neighbors
 
 
 def how_many_samples_take(loader: torch.utils.data.DataLoader):
@@ -121,4 +123,33 @@ class AccuracyEmbedding(Accuracy):
     def predict_proba(self, outputs_test):
         distances = self.distances(outputs_test)
         proba = 1 - distances / distances.sum(dim=1).unsqueeze(1)
+        return proba
+
+
+class AccuracyKNN(Accuracy):
+
+    def __init__(self, metric: str, n_neighbors=11):
+        super().__init__()
+        self.metric = metric
+        self.n_neighbors = n_neighbors
+        self.knn = self.new_knn()
+
+    def new_knn(self):
+        return sklearn.neighbors.KNeighborsClassifier(n_neighbors=self.n_neighbors, metric=self.metric, n_jobs=-1)
+
+    def save(self, outputs_train, labels_train):
+        self.knn = self.new_knn()
+        outputs_train = outputs_train.detach().cpu()
+        self.knn.fit(outputs_train, labels_train.cpu())
+
+    def predict(self, outputs_test):
+        outputs_test = outputs_test.detach().cpu()
+        labels_predicted = self.knn.predict(outputs_test)
+        labels_predicted = torch.as_tensor(labels_predicted, device=outputs_test.device)
+        return labels_predicted
+
+    def predict_proba(self, outputs_test):
+        outputs_test = outputs_test.detach().cpu()
+        proba = self.knn.predict_proba(outputs_test)
+        proba = torch.as_tensor(proba, device=outputs_test.device)
         return proba
