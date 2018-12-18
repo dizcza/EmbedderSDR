@@ -23,6 +23,7 @@ class TripletLoss(PairLoss):
         dist_other = self.distance(outputs[anchor], outputs[other])
 
         loss = dist_same - dist_other + self.margin
+        loss = self.take_hardest(loss)
         loss = torch.relu(loss).mean()
 
         return loss

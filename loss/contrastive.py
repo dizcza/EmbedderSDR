@@ -12,7 +12,7 @@ from utils.layers import SerializableModule
 
 class PairLoss(nn.Module, ABC):
 
-    def __init__(self, metric='cosine', leave_hardest: float = 0.5):
+    def __init__(self, metric='cosine', leave_hardest: float = 1.0):
         """
         :param metric: cosine, l2 or l1 metric to measure the distance between embeddings
         :param leave_hardest: hard negative & positive mining
@@ -76,6 +76,12 @@ class PairLoss(nn.Module, ABC):
             loss = loss + dist.mean()
         return loss
 
+    def take_hardest(self, distances):
+        if self.leave_hardest < 1.0:
+            distances, _unused = distances.sort(descending=True)
+            distances = distances[: int(len(distances) * self.leave_hardest)]
+        return distances
+
 
 class LossFixedPattern(PairLoss, SerializableModule):
     state_attr = ['patterns']
@@ -133,11 +139,8 @@ class ContrastiveLossRandom(PairLoss):
         dist = self.distance(outputs[left_indices], outputs[right_indices])
         is_same = labels[left_indices] == labels[right_indices]
 
-        dist_same, _unused = dist[is_same].sort(descending=True)
-        dist_same = dist_same[: int(len(dist_same) * self.leave_hardest)]
-
-        dist_other, _unused = dist[~is_same].sort()
-        dist_other = dist_other[: int(len(dist_other) * self.leave_hardest)]
+        dist_same = dist[is_same]
+        dist_other = dist[~is_same]
 
         return dist_same, dist_other
 
@@ -152,8 +155,12 @@ class ContrastiveLossRandom(PairLoss):
             dist_same, dist_other = self.forward_contrastive(outputs, labels)
 
         dist_same = dist_same[dist_same > self.eps]
+        dist_same = self.take_hardest(dist_same)
         loss_same = self.mean_nonempty(dist_same)
-        loss_other = torch.relu(self.margin - dist_other).mean()
+
+        loss_other = self.margin - dist_other
+        loss_other = self.take_hardest(loss_other)
+        loss_other = torch.relu(loss_other).mean()
 
         if self.synaptic_scale > 0:
             loss_frequency = self.synaptic_scale * (outputs.mean(dim=0) - outputs.mean()).std()
