@@ -23,7 +23,7 @@ class PairLoss(nn.Module, ABC):
         if self.metric == 'cosine':
             self.margin = 0.5
         else:
-            self.margin = 0.75
+            self.margin = 1.0
         self.leave_hardest = leave_hardest
 
     @property
@@ -38,10 +38,14 @@ class PairLoss(nn.Module, ABC):
     def extra_repr(self):
         return f'metric={self.metric}, margin={self.margin}, leave_hardest={self.leave_hardest}'
 
-    @staticmethod
-    def filter_nonzero(outputs, labels):
+    def filter_nonzero(self, outputs, labels, normalize: bool):
         nonzero = (outputs != 0).any(dim=1)
-        return outputs[nonzero], labels[nonzero]
+        outputs = outputs[nonzero]
+        labels = labels[nonzero]
+        if normalize and self.metric != 'cosine':
+            # sparsity changes with epoch but margin stays the same
+            outputs = outputs / outputs.norm(p=self.power, dim=1).mean()
+        return outputs, labels
 
     @staticmethod
     def mean_nonempty(distances):
@@ -51,9 +55,9 @@ class PairLoss(nn.Module, ABC):
         if self.metric == 'cosine':
             dist = 1 - F.cosine_similarity(input1, input2, dim=1)
         elif self.metric == 'l1':
-            dist = (input1 - input2).abs().sum(dim=1)
+            dist = F.l1_loss(input1, input2, reduction='none')
         elif self.metric == 'l2':
-            dist = (input1 - input2).pow(2).sum(dim=1)
+            dist = F.mse_loss(input1, input2, reduction='none')
         else:
             raise NotImplementedError
         return dist
@@ -92,7 +96,7 @@ class LossFixedPattern(PairLoss, SerializableModule):
         self.sparsity = sparsity
 
     def forward(self, outputs, labels):
-        outputs, labels = self.filter_nonzero(outputs, labels)
+        outputs, labels = self.filter_nonzero(outputs, labels, normalize=False)  # sparsity is fixed
         embedding_dim = outputs.shape[1]
         n_active = math.ceil(self.sparsity * embedding_dim)
         loss = 0
@@ -145,9 +149,7 @@ class ContrastiveLossRandom(PairLoss):
         return dist_same, dist_other
 
     def forward(self, outputs, labels):
-        outputs, labels = self.filter_nonzero(outputs, labels)
-        if self.metric != 'cosine' and (self.synaptic_scale > 0 or self.mean_loss_coef > 0):
-            outputs = outputs / outputs.norm(p=self.power, dim=1).mean()
+        outputs, labels = self.filter_nonzero(outputs, labels, normalize=True)
         if timer.is_epoch_finished():
             # if an epoch is finished, use random pairs no matter what the mode is
             dist_same, dist_other = self.forward_random(outputs, labels)
