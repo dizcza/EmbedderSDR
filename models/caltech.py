@@ -3,14 +3,15 @@ from typing import Optional
 import torch.nn as nn
 import torchvision
 
-softmax_out_features = 256
+SOFTMAX_FEATURES = 256
+KWTA_FEATURES = 1024
 
 
 def _classifier(in_features: int, kwta: Optional[nn.Module]):
     if kwta:
-        return nn.Sequential(nn.Linear(in_features=in_features, out_features=softmax_out_features, bias=False), kwta)
+        return nn.Sequential(nn.Linear(in_features=in_features, out_features=KWTA_FEATURES, bias=False), kwta)
     else:
-        return nn.Linear(in_features=in_features, out_features=softmax_out_features)
+        return nn.Linear(in_features=in_features, out_features=SOFTMAX_FEATURES)
 
 
 def make_no_grad(model):
@@ -19,8 +20,8 @@ def make_no_grad(model):
 
 
 def set_softmax_out_features(out_features):
-    global softmax_out_features
-    softmax_out_features = out_features
+    global SOFTMAX_FEATURES
+    SOFTMAX_FEATURES = out_features
 
 
 def resnet18(pretrained=True, kwta=None):
@@ -33,7 +34,7 @@ def resnet18(pretrained=True, kwta=None):
 def squeezenet1_1(pretrained=True, kwta=None):
     model = torchvision.models.squeezenet1_1(pretrained=pretrained)
     make_no_grad(model)
-    model.num_classes = softmax_out_features
+    model.num_classes = SOFTMAX_FEATURES
     final_conv = nn.Conv2d(512, model.num_classes, kernel_size=1)
     nn.init.normal_(final_conv.weight, mean=0.0, std=0.01)
     classifier = [nn.Dropout(p=0.5), final_conv, nn.ReLU(inplace=True), nn.AvgPool2d(13, stride=1)]
@@ -50,10 +51,12 @@ def densenet121(pretrained=True, kwta=None):
     return model
 
 
-def vgg19(pretrained=True, kwta=None):
-    model = torchvision.models.vgg19(pretrained=pretrained)
+def vgg16(pretrained=True, kwta=None):
+    model = torchvision.models.vgg16(pretrained=pretrained)
     make_no_grad(model)
     classifier = [*model.classifier]
     last_layer = classifier.pop()  # 4096
-    model.classifier = _classifier(in_features=last_layer.in_features, kwta=kwta)
+    classifier.append(_classifier(in_features=last_layer.in_features, kwta=kwta))
+    classifier = nn.Sequential(*classifier)
+    model.classifier = classifier
     return model
