@@ -58,9 +58,9 @@ class PairLoss(nn.Module, ABC):
         if self.metric == 'cosine':
             dist = 1 - F.cosine_similarity(input1, input2, dim=1)
         elif self.metric == 'l1':
-            dist = F.l1_loss(input1, input2, reduction='none')
+            dist = F.l1_loss(input1, input2, reduction='none').sum(dim=1)
         elif self.metric == 'l2':
-            dist = F.mse_loss(input1, input2, reduction='none')
+            dist = F.mse_loss(input1, input2, reduction='none').sum(dim=1)
         else:
             raise NotImplementedError
         return dist
