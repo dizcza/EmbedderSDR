@@ -9,11 +9,10 @@ class TripletLoss(PairLoss):
     def forward(self, outputs, labels):
         outputs, labels = self.filter_nonzero(outputs, labels, normalize=True)
         n_samples = len(outputs)
-        n_unique = len(labels.unique(sorted=False))  # probability of two random samples having same class is 1/n_unique
-        random_sample_shape = (n_unique * n_samples,)
-        anchor = torch.randint(low=0, high=n_samples, size=random_sample_shape, device=outputs.device)
-        same = torch.randint(low=0, high=n_samples, size=random_sample_shape, device=outputs.device)
-        other = torch.randint(low=0, high=n_samples, size=random_sample_shape, device=outputs.device)
+        pairs_to_sample = self.pairs_to_sample(labels)
+        anchor = torch.randint(low=0, high=n_samples, size=pairs_to_sample, device=outputs.device)
+        same = torch.randint(low=0, high=n_samples, size=pairs_to_sample, device=outputs.device)
+        other = torch.randint(low=0, high=n_samples, size=pairs_to_sample, device=outputs.device)
 
         triplets = (labels[anchor] == labels[same]) & (labels[anchor] != labels[other])
         anchor = anchor[triplets]

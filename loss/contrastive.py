@@ -12,11 +12,13 @@ from utils.layers import SerializableModule
 
 class PairLoss(nn.Module, ABC):
 
-    def __init__(self, metric='cosine', leave_hardest: float = 1.0):
+    def __init__(self, metric='cosine', pairs_multiplier: int = 1, leave_hardest: float = 1.0):
         """
         :param metric: cosine, l2 or l1 metric to measure the distance between embeddings
+        :param pairs_multiplier: how many pairs create from a single sample?
         :param leave_hardest: hard negative & positive mining
         """
+        assert 0 < leave_hardest <= 1, "Value should be in (0, 1]"
         super().__init__()
         self.metric = metric
         self.eps = 1e-6
@@ -25,6 +27,7 @@ class PairLoss(nn.Module, ABC):
         else:
             self.margin = 1.0
         self.leave_hardest = leave_hardest
+        self.pairs_multiplier = pairs_multiplier
 
     @property
     def power(self):
@@ -80,6 +83,19 @@ class PairLoss(nn.Module, ABC):
             loss = loss + dist.mean()
         return loss
 
+    def pairs_to_sample(self, labels):
+        """
+        Probability of two random samples having same class is 1/n_classes.
+        On average, each single sample in a batch produces 1/n_classes pairs
+          or 1/n_classes * (1 - 1/n_classes) triplets.
+        :param labels: batch of labels
+        :return: how many random permutations to sample to get the desired number of pairs or triplets
+        """
+        batch_size = len(labels)
+        n_unique = len(labels.unique(sorted=False))
+        random_pairs_shape = (self.pairs_multiplier * n_unique * batch_size,)
+        return random_pairs_shape
+
     def take_hardest(self, distances):
         if self.leave_hardest < 1.0:
             distances, _unused = distances.sort(descending=True)
@@ -117,14 +133,16 @@ class LossFixedPattern(PairLoss, SerializableModule):
 
 class ContrastiveLossRandom(PairLoss):
 
-    def __init__(self, metric='cosine', leave_hardest: float = 1.0, synaptic_scale=0, mean_loss_coef=0):
+    def __init__(self, metric='cosine', pairs_multiplier: int = 1, leave_hardest: float = 1.0, synaptic_scale=0,
+                 mean_loss_coef=0):
         """
         :param metric: cosine, l2 or l1 metric to measure the distance between embeddings
+        :param pairs_multiplier: how many pairs create from a single sample?
         :param leave_hardest: hard negative & positive mining
         :param synaptic_scale: synaptic scale constant loss factor to keep neurons activation rate same
         :param mean_loss_coef: coefficient of same-other loss on mean activations only
         """
-        super().__init__(metric=metric, leave_hardest=leave_hardest)
+        super().__init__(metric=metric, pairs_multiplier=pairs_multiplier, leave_hardest=leave_hardest)
         self.synaptic_scale = synaptic_scale
         self.mean_loss_coef = mean_loss_coef
 
@@ -137,9 +155,9 @@ class ContrastiveLossRandom(PairLoss):
 
     def forward_random(self, outputs, labels):
         n_samples = len(outputs)
-        n_unique = len(labels.unique(sorted=False))  # probability of two random samples having same class is 1/n_unique
-        left_indices = torch.randint(low=0, high=n_samples, size=(n_unique * n_samples,), device=outputs.device)
-        right_indices = torch.randint(low=0, high=n_samples, size=(n_unique * n_samples,), device=outputs.device)
+        pairs_to_sample = self.pairs_to_sample(labels)
+        left_indices = torch.randint(low=0, high=n_samples, size=pairs_to_sample, device=outputs.device)
+        right_indices = torch.randint(low=0, high=n_samples, size=pairs_to_sample, device=outputs.device)
         dist = self.distance(outputs[left_indices], outputs[right_indices])
         is_same = labels[left_indices] == labels[right_indices]
 
