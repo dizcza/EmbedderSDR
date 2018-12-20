@@ -21,11 +21,11 @@ class PairLoss(nn.Module, ABC):
         assert 0 < leave_hardest <= 1, "Value should be in (0, 1]"
         super().__init__()
         self.metric = metric
-        self.eps = 1e-6
         if self.metric == 'cosine':
             self.margin = 0.5
         else:
             self.margin = 1.0
+        self.margin_same = 0.1
         self.leave_hardest = leave_hardest
         self.pairs_multiplier = pairs_multiplier
 
@@ -39,7 +39,8 @@ class PairLoss(nn.Module, ABC):
             raise NotImplementedError
 
     def extra_repr(self):
-        return f'metric={self.metric}, margin={self.margin}, leave_hardest={self.leave_hardest}'
+        return f'metric={self.metric}, margin={self.margin}, margin_same={self.margin_same}, ' \
+            f'pairs_multiplier={self.pairs_multiplier}, leave_hardest={self.leave_hardest}'
 
     def filter_nonzero(self, outputs, labels, normalize: bool):
         nonzero = (outputs != 0).any(dim=1)
@@ -174,9 +175,8 @@ class ContrastiveLossRandom(PairLoss):
         else:
             dist_same, dist_other = self.forward_contrastive(outputs, labels)
 
-        dist_same = dist_same[dist_same > self.eps]
         dist_same = self.take_hardest(dist_same)
-        loss_same = self.mean_nonempty(dist_same)
+        loss_same = torch.relu(dist_same - self.margin_same).mean()
 
         loss_other = self.margin - dist_other
         loss_other = self.take_hardest(loss_other)
