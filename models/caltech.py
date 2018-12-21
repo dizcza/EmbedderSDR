@@ -4,7 +4,7 @@ import torch.nn as nn
 import torchvision
 
 SOFTMAX_FEATURES = 256
-KWTA_FEATURES = 1024
+KWTA_FEATURES = 512
 
 
 def _classifier(in_features: int, kwta: Optional[nn.Module]):
