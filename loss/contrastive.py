@@ -12,20 +12,22 @@ from utils.layers import SerializableModule
 
 class PairLoss(nn.Module, ABC):
 
-    def __init__(self, metric='cosine', pairs_multiplier: int = 1, leave_hardest: float = 1.0):
+    def __init__(self, metric='cosine', margin: float = None, pairs_multiplier: int = 1, leave_hardest: float = 1.0):
         """
         :param metric: cosine, l2 or l1 metric to measure the distance between embeddings
+        :param margin: same-other margin
         :param pairs_multiplier: how many pairs create from a single sample?
         :param leave_hardest: hard negative & positive mining
         """
         assert 0 < leave_hardest <= 1, "Value should be in (0, 1]"
         super().__init__()
         self.metric = metric
-        if self.metric == 'cosine':
-            self.margin = 0.5
-        else:
-            self.margin = 1.0
-        self.margin_same = 0.1
+        if margin is None:
+            if self.metric == 'cosine':
+                margin = 0.5
+            else:
+                margin = 1.0
+        self.margin = margin
         self.leave_hardest = leave_hardest
         self.pairs_multiplier = pairs_multiplier
 
@@ -39,7 +41,7 @@ class PairLoss(nn.Module, ABC):
             raise NotImplementedError
 
     def extra_repr(self):
-        return f'metric={self.metric}, margin={self.margin}, margin_same={self.margin_same}, ' \
+        return f'metric={self.metric}, margin={self.margin}, ' \
             f'pairs_multiplier={self.pairs_multiplier}, leave_hardest={self.leave_hardest}'
 
     def filter_nonzero(self, outputs, labels, normalize: bool):
@@ -134,22 +136,26 @@ class LossFixedPattern(PairLoss, SerializableModule):
 
 class ContrastiveLossRandom(PairLoss):
 
-    def __init__(self, metric='cosine', pairs_multiplier: int = 1, leave_hardest: float = 1.0, synaptic_scale=0,
-                 mean_loss_coef=0):
+    def __init__(self, metric='cosine', margin: float = None, pairs_multiplier: int = 1, leave_hardest: float = 1.0,
+                 margin_same: float = 0.1, synaptic_scale: float = 0, mean_loss_coef: float = 0):
         """
         :param metric: cosine, l2 or l1 metric to measure the distance between embeddings
+        :param margin: same-other margin
         :param pairs_multiplier: how many pairs create from a single sample?
         :param leave_hardest: hard negative & positive mining
+        :param margin_same: same-same margin below which you pay zero loss
         :param synaptic_scale: synaptic scale constant loss factor to keep neurons activation rate same
         :param mean_loss_coef: coefficient of same-other loss on mean activations only
         """
-        super().__init__(metric=metric, pairs_multiplier=pairs_multiplier, leave_hardest=leave_hardest)
+        super().__init__(metric=metric, margin=margin, pairs_multiplier=pairs_multiplier, leave_hardest=leave_hardest)
+        self.margin_same = margin_same
         self.synaptic_scale = synaptic_scale
         self.mean_loss_coef = mean_loss_coef
 
     def extra_repr(self):
         old_repr = super().extra_repr()
-        return f'{old_repr}, synaptic_scale={self.synaptic_scale}, mean_loss_coef={self.mean_loss_coef}'
+        return f'{old_repr}, margin_same={self.margin_same}, synaptic_scale={self.synaptic_scale}, ' \
+            f'mean_loss_coef={self.mean_loss_coef}'
 
     def forward_contrastive(self, outputs, labels):
         return self.forward_random(outputs, labels)
