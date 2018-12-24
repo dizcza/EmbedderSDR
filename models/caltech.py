@@ -1,7 +1,11 @@
+from pathlib import Path
 from typing import Optional
 
+import torch
 import torch.nn as nn
 import torchvision
+
+from models.kwta import KWinnersTakeAll
 
 SOFTMAX_FEATURES = 256
 KWTA_FEATURES = 512
@@ -51,8 +55,19 @@ def densenet121(pretrained=True, kwta=None):
     return model
 
 
-def vgg16(pretrained=True, kwta=None):
-    model = torchvision.models.vgg16(pretrained=pretrained)
+def vgg16(pretrained=True, kwta: KWinnersTakeAll = None, checkpoint: Path = None):
+    """
+    :param pretrained: use pretrained on ImageNet?
+    :param kwta: the last layer is kwta or softmax?
+    :param checkpoint: checkpoint path to TrainerGrad CrossEntropy, where the last layer is softmax
+    :return: model for Caltech dataset
+    """
+    if checkpoint is not None:
+        model = vgg16(kwta=None, checkpoint=None)
+        checkpoint_state = torch.load(checkpoint)
+        model.load_state_dict(checkpoint_state['model_state'])
+    else:
+        model = torchvision.models.vgg16(pretrained=pretrained)
     make_no_grad(model)
     classifier = [*model.classifier]
     last_layer = classifier.pop()  # 4096
