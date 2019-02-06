@@ -2,6 +2,8 @@ from collections import defaultdict
 
 import torch
 import torch.utils.data
+import torchvision
+from PIL import Image
 from tqdm import tqdm
 
 from models.kwta import _KWinnersTakeAllFunction
@@ -25,14 +27,12 @@ def undo_normalization(images_normalized, normalize_inverse):
     return tensor
 
 
-def kwta_inverse(embedding_dim=10000, sparsity=0.05, dataset="MNIST", debug=False):
-    import matplotlib.pyplot as plt
-    loader = get_data_loader(dataset=dataset, batch_size=32)
+def kwta_inverse(embedding_dim=10000, sparsity=0.05, dataset="MNIST"):
+    loader = get_data_loader(dataset=dataset, batch_size=16)
     normalize_inverse = get_normalize_inverse(loader.dataset.transform)
     images, labels = next(iter(loader))
     batch_size, channels, height, width = images.shape
     kwta_embeddings = []
-    before_inverse = []
     restored = []
     for channel in range(channels):
         images_channel = images[:, channel, :, :]
@@ -46,34 +46,29 @@ def kwta_inverse(embedding_dim=10000, sparsity=0.05, dataset="MNIST", debug=Fals
         before_inverse_channel = kwta_embeddings_channel @ weights.transpose(0, 1)
         restored_channel = _KWinnersTakeAllFunction.apply(before_inverse_channel.clone(), sparsity_channel)
         kwta_embeddings.append(kwta_embeddings_channel)
-        before_inverse.append(before_inverse_channel)
         restored.append(restored_channel)
 
     kwta_embeddings = torch.stack(kwta_embeddings, dim=1)
-    before_inverse = torch.stack(before_inverse, dim=1)
     restored = torch.stack(restored, dim=1)
 
     kwta_embeddings = kwta_embeddings.view(batch_size, channels, *factors_root(embedding_dim))
-    before_inverse = before_inverse.view_as(images)
     restored = restored.view_as(images)
 
     images = undo_normalization(images, normalize_inverse)
 
-    for orig, kwta, raw, restored in zip(images, kwta_embeddings, before_inverse, restored):
-        plt.subplot(141)
-        plt.title("Original")
-        plt.imshow(torch_to_matplotlib(orig))
-        plt.subplot(142)
-        plt.title("kWTA")
-        plt.imshow(torch_to_matplotlib(kwta))
-        plt.subplot(143)
-        plt.imshow(torch_to_matplotlib(restored))
-        plt.title("Restored")
-        if debug:
-            plt.subplot(144)
-            plt.imshow(torch_to_matplotlib(raw))
-            plt.title("Before inverse")
-        plt.show()
+    viz = VisdomMighty(env="kWTA inverse")
+    transform = torchvision.transforms.Compose([torchvision.transforms.ToPILImage(),
+                                                torchvision.transforms.Resize(size=128, interpolation=Image.NEAREST),
+                                                torchvision.transforms.ToTensor()])
+    transformed_images = []
+    for orig, kwta, restored in zip(images, kwta_embeddings, restored):
+        transformed_images.append(transform(orig))
+        transformed_images.append(transform(kwta))
+        transformed_images.append(transform(restored))
+    transformed_images = torch.stack(transformed_images, dim=0)
+    viz.images(transformed_images, win='images', nrow=3, opts=dict(
+        title=f"Original | kWTA(n={embedding_dim}, sparsity={sparsity}) | Restored",
+    ))
 
 
 def surfplot(dataset="MNIST"):
@@ -122,5 +117,5 @@ def surfplot(dataset="MNIST"):
 
 
 if __name__ == '__main__':
-    # kwta_inverse()
+    kwta_inverse()
     surfplot()
