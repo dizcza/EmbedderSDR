@@ -3,6 +3,7 @@ from collections import defaultdict
 import torch
 import torch.utils.data
 import torchvision
+import torchvision.transforms.functional
 from PIL import Image
 from tqdm import tqdm
 
@@ -32,24 +33,15 @@ def kwta_inverse(embedding_dim=10000, sparsity=0.05, dataset="MNIST"):
     normalize_inverse = get_normalize_inverse(loader.dataset.transform)
     images, labels = next(iter(loader))
     batch_size, channels, height, width = images.shape
-    kwta_embeddings = []
-    restored = []
-    for channel in range(channels):
-        images_channel = images[:, channel, :, :]
-        images_binary = (images_channel > 0).type(torch.float32)
-        sparsity_channel = images_binary.mean()
-        print(f"Sparsity image raw channel={channel}: {sparsity_channel:.3f}")
-        images_flatten = images_channel.flatten(start_dim=1)
-        weights = torch.randn(images_flatten.shape[1], embedding_dim)
-        embeddings = images_flatten @ weights
-        kwta_embeddings_channel = _KWinnersTakeAllFunction.apply(embeddings.clone(), sparsity)
-        before_inverse_channel = kwta_embeddings_channel @ weights.transpose(0, 1)
-        restored_channel = _KWinnersTakeAllFunction.apply(before_inverse_channel.clone(), sparsity_channel)
-        kwta_embeddings.append(kwta_embeddings_channel)
-        restored.append(restored_channel)
-
-    kwta_embeddings = torch.stack(kwta_embeddings, dim=1)
-    restored = torch.stack(restored, dim=1)
+    images_binary = (images > 0).type(torch.float32)
+    sparsity_input = images_binary.mean()
+    print(f"Sparsity input raw image: {sparsity_input:.3f}")
+    images_flatten = images.flatten(start_dim=2)
+    weights = torch.randn(images_flatten.shape[2], embedding_dim)
+    embeddings = images_flatten @ weights
+    kwta_embeddings = _KWinnersTakeAllFunction.apply(embeddings.clone(), sparsity)
+    before_inverse = kwta_embeddings @ weights.transpose(0, 1)
+    restored = _KWinnersTakeAllFunction.apply(before_inverse.clone(), sparsity_input)
 
     kwta_embeddings = kwta_embeddings.view(batch_size, channels, *factors_root(embedding_dim))
     restored = restored.view_as(images)
@@ -71,36 +63,78 @@ def kwta_inverse(embedding_dim=10000, sparsity=0.05, dataset="MNIST"):
     ))
 
 
+def calc_overlap(vec1, vec2):
+    """
+    :param vec1: batch of binary vectors
+    :param vec2: batch of binary vectors
+    :return: (float) vec1 and vec2 similarity (overlap)
+    """
+    vec1 = vec1.flatten(start_dim=1)
+    vec2 = vec2.flatten(start_dim=1)
+    k_active = (vec1.sum(dim=1) + vec2.sum(dim=1)) / 2
+    similarity = (vec1 * vec2).sum(dim=1) / k_active
+    similarity = similarity.mean()
+    return similarity
+
+
+def kwta_translation_similarity(embedding_dim=10000, sparsity=0.05, translate=(1, 1), dataset="MNIST"):
+    loader = get_data_loader(dataset=dataset, batch_size=256)
+    images, labels = next(iter(loader))
+    images = (images > 0).type(torch.float32)
+
+    images_translated = []
+    for im in images:
+        im_pil = torchvision.transforms.functional.to_pil_image(im)
+        im_translated = torchvision.transforms.functional.affine(im_pil, angle=0, translate=translate, scale=1, shear=0)
+        im_translated = torchvision.transforms.functional.to_tensor(im_translated)
+        images_translated.append(im_translated)
+    images_translated = torch.stack(images_translated, dim=0)
+    assert images_translated.unique(sorted=True).tolist() == [0, 1]
+
+    w, h = images.shape[2:]
+    weights = torch.randn(w * h, embedding_dim)
+
+    def apply_kwta(images_input):
+        """
+        :param images_input: (B, C, W, H) images tensor
+        :return: (B, C, k_active) kwta encoded SDR tensor
+        """
+        images_flatten = images_input.flatten(start_dim=2)
+        embeddings = images_flatten @ weights
+        kwta_embedding = _KWinnersTakeAllFunction.apply(embeddings.clone(), sparsity)
+        return kwta_embedding
+
+    kwta_orig = apply_kwta(images)
+    kwta_translated = apply_kwta(images_translated)
+
+    print(f"input image ORIG vs TRANSLATED similarity {calc_overlap(images, images_translated):.3f}")
+    print(f"random-kWTA ORIG vs TRANSLATED similarity: {calc_overlap(kwta_orig, kwta_translated):.3f}")
+
+
 def surfplot(dataset="MNIST"):
-    loader = get_data_loader(dataset=dataset)
+    loader = get_data_loader(dataset=dataset, batch_size=32)
     logdim = torch.arange(8, 14)
     embedding_dimensions = torch.pow(2, logdim)
     sparsities = [0.001, 0.01, 0.05, 0.1, 0.3, 0.5, 0.75]
-    channels = 1 if dataset == "MNIST" else 3
-    overlap_running_mean = defaultdict(lambda: defaultdict(lambda: defaultdict(MeanOnline)))
+    overlap_running_mean = defaultdict(lambda: defaultdict(MeanOnline))
     for images, labels in tqdm(loader, desc=f"kWTA inverse overlap surfplot ({dataset})"):
         if torch.cuda.is_available():
             images = images.cuda()
-        for channel in range(channels):
-            images_channel = images[:, channel, :, :]
-            images_binary = (images_channel > 0).type(torch.float32).flatten(start_dim=1)
-            n_bits_active = images_binary.sum(dim=1)
-            sparsity_channel = images_binary.mean()
-            for i, embedding_dim in enumerate(embedding_dimensions):
-                for j, sparsity in enumerate(sparsities):
-                    weights = torch.randn(images_binary.shape[1], embedding_dim, device=images_binary.device)
-                    embeddings = images_binary @ weights
-                    kwta_embeddings_channel = _KWinnersTakeAllFunction.apply(embeddings, sparsity)
-                    before_inverse_channel = kwta_embeddings_channel @ weights.transpose(0, 1)
-                    restored_channel = _KWinnersTakeAllFunction.apply(before_inverse_channel, sparsity_channel)
-                    overlap_batch = (restored_channel == images_binary).sum(dim=1).type(torch.float) / n_bits_active
-                    overlap_running_mean[channel][i][j].update(overlap_batch.mean())
-    overlap = torch.empty(channels, len(embedding_dimensions), len(sparsities))
-    for channel in range(overlap.shape[0]):
-        for i in range(overlap.shape[1]):
-            for j in range(overlap.shape[2]):
-                overlap[channel, i, j] = overlap_running_mean[channel][i][j].get_mean()
-    overlap = overlap.mean(dim=0)
+        images_binary = (images > 0).type(torch.float32).flatten(start_dim=2)
+        sparsity_channel = images_binary.mean()
+        for i, embedding_dim in enumerate(embedding_dimensions):
+            for j, sparsity in enumerate(sparsities):
+                weights = torch.randn(images_binary.shape[2], embedding_dim, device=images_binary.device)
+                embeddings = images_binary @ weights
+                kwta_embeddings = _KWinnersTakeAllFunction.apply(embeddings, sparsity)
+                before_inverse = kwta_embeddings @ weights.transpose(0, 1)
+                restored = _KWinnersTakeAllFunction.apply(before_inverse, sparsity_channel)
+                overlap = calc_overlap(images_binary, restored)
+                overlap_running_mean[i][j].update(overlap)
+    overlap = torch.empty(len(embedding_dimensions), len(sparsities))
+    for i in range(overlap.shape[0]):
+        for j in range(overlap.shape[1]):
+            overlap[i, j] = overlap_running_mean[i][j].get_mean()
 
     viz = VisdomMighty(env="kWTA inverse")
     opts = dict(
@@ -119,3 +153,4 @@ def surfplot(dataset="MNIST"):
 if __name__ == '__main__':
     kwta_inverse()
     surfplot()
+    kwta_translation_similarity()
