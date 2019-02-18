@@ -42,7 +42,7 @@ class Trainer(ABC):
             self.env_name = self.env_name + f' {env_suffix}'
         if accuracy_measure is None:
             if isinstance(self.criterion, PairLoss):
-                accuracy_measure = AccuracyEmbedding()
+                accuracy_measure = AccuracyEmbedding(metric=self.criterion.metric)
             else:
                 # cross entropy loss
                 accuracy_measure = AccuracyArgmax()

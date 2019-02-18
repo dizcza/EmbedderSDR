@@ -7,6 +7,8 @@ import torch.nn.functional as F
 import torch.utils.data
 import sklearn.neighbors
 
+from utils.algebra import compute_distance
+
 
 def how_many_samples_take(loader: torch.utils.data.DataLoader):
     """
@@ -78,6 +80,12 @@ class Accuracy(ABC):
         """
         raise NotImplementedError
 
+    def __repr__(self):
+        return f"{self.__class__.__name__}({self.extra_repr()})"
+
+    def extra_repr(self):
+        return ''
+
 
 class AccuracyArgmax(Accuracy):
 
@@ -94,17 +102,26 @@ class AccuracyEmbedding(Accuracy):
     Calculates the accuracy of embedding vectors.
     """
 
-    def __init__(self):
+    def __init__(self, metric='cosine'):
         self.centroids = []
+        self.metric = metric
+
+    def extra_repr(self):
+        return f'metric={self.metric}'
 
     def distances(self, outputs_test):
+        """
+        :param outputs_test: (B, D) embeddings tensor
+        :return: (B, n_classes) distance matrix to each centroid
+        """
         assert len(self.centroids) > 0, "Save train embeddings first"
         centroids = torch.as_tensor(self.centroids, device=outputs_test.device)
         distances = []
-        outputs_test = outputs_test.unsqueeze(dim=1)
-        for centroids_chunk in centroids.split(split_size=50, dim=0):
+        outputs_test = outputs_test.unsqueeze(dim=1)  # (B, 1, D)
+        centroids = centroids.unsqueeze(dim=0)  # (1, n_classes, D)
+        for centroids_chunk in centroids.split(split_size=50, dim=1):
             # memory efficient
-            distances_chunk = (outputs_test - centroids_chunk).abs_().sum(dim=-1)
+            distances_chunk = compute_distance(input1=outputs_test, input2=centroids_chunk, metric=self.metric, dim=2)
             distances.append(distances_chunk)
         distances = torch.cat(distances, dim=1)
         return distances

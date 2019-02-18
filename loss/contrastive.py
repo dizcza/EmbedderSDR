@@ -8,6 +8,7 @@ import torch.nn.functional as F
 
 from monitor.batch_timer import timer
 from utils.layers import SerializableModule
+from utils.algebra import compute_distance
 
 
 class PairLoss(nn.Module, ABC):
@@ -58,15 +59,7 @@ class PairLoss(nn.Module, ABC):
         return 0 if len(distances) == 0 else distances.mean()
 
     def distance(self, input1, input2):
-        if self.metric == 'cosine':
-            dist = 1 - F.cosine_similarity(input1, input2, dim=1)
-        elif self.metric == 'l1':
-            dist = F.l1_loss(input1, input2, reduction='none').sum(dim=1)
-        elif self.metric == 'l2':
-            dist = F.mse_loss(input1, input2, reduction='none').sum(dim=1)
-        else:
-            raise NotImplementedError
-        return dist
+        return compute_distance(input1=input1, input2=input2, metric=self.metric, dim=1)
 
     def forward_mean(self, outputs, labels):
         """

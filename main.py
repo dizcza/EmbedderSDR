@@ -74,8 +74,7 @@ def train_kwta(n_epoch=500, dataset_name="MNIST"):
     # kwta = SynapticScaling(kwta, synaptic_scale=3)
     model = EmbedderSDR(last_layer=kwta, dataset_name=dataset_name)
     optimizer, scheduler = get_optimizer_scheduler(model)
-    criterion = ContrastiveLossRandom(metric='cosine')
-    # criterion = LossFixedPattern(sparsity=kwta.sparsity)
+    criterion = TripletLoss(metric='cosine')
     kwta_scheduler = KWTAScheduler(model=model, step_size=15, gamma_sparsity=0.5, min_sparsity=0.05,
                                    gamma_hardness=2, max_hardness=10)
     trainer = TrainerGradKWTA(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,

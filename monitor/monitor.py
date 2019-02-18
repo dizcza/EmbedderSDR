@@ -114,7 +114,7 @@ class Monitor(object):
         self.log(lines)
 
     def log_self(self):
-        self.log(f"{self.__class__.__name__}(accuracy_measure={self.accuracy_measure.__class__.__name__}, "
+        self.log(f"{self.__class__.__name__}(accuracy_measure={self.accuracy_measure}, "
                  f"level={self._advanced_monitoring_level})")
         self.log(repr(self.mutual_info))
         self.log(f"FULL_FORWARD_PASS_SIZE: {os.environ.get('FULL_FORWARD_PASS_SIZE', '(all samples)')}")

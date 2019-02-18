@@ -6,6 +6,18 @@ import torch
 import torch.nn.functional as F
 
 
+def compute_distance(input1, input2, metric, dim=1):
+    if metric == 'cosine':
+        dist = 1 - F.cosine_similarity(input1, input2, dim=dim)
+    elif metric == 'l1':
+        dist = F.l1_loss(input1, input2, reduction='none').sum(dim=dim)
+    elif metric == 'l2':
+        dist = F.mse_loss(input1, input2, reduction='none').sum(dim=dim)
+    else:
+        raise NotImplementedError
+    return dist
+
+
 def exponential_moving_average(array, window: int):
     array = np.asarray(array)
     alpha = 2 / (window + 1.0)
