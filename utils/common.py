@@ -23,6 +23,13 @@ def set_seed(seed: int):
     torch.manual_seed(seed)
 
 
+def clone_cpu(tensor: torch.Tensor) -> torch.Tensor:
+    tensor_clone = tensor.cpu()
+    if tensor_clone is tensor:
+        tensor_clone = tensor_clone.clone()
+    return tensor_clone
+
+
 def timer_profile(func):
     """
     For debug purposes only.

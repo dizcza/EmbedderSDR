@@ -16,7 +16,7 @@ class MutualInfoKMeans(MutualInfo):
     KMeans is used to cluster the data.
     """
 
-    def __init__(self, estimate_size=float('inf'), n_bins=MutualInfo.n_bins_default, debug=False):
+    def __init__(self, estimate_size=None, n_bins=MutualInfo.n_bins_default, debug=False):
         """
         :param estimate_size: number of samples to estimate mutual information from
         :param n_bins: how many bins to use? This value should be no less than the number of classes.

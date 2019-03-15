@@ -14,6 +14,7 @@ from monitor.accuracy import full_forward_pass, AccuracyEmbedding, AccuracyArgma
 from monitor.batch_timer import timer
 from monitor.monitor import Monitor
 from monitor.var_online import MeanOnline
+from monitor.mutual_info import MutualInfoKMeans
 from trainer.mask import MaskTrainer
 from utils.common import get_data_loader
 from utils.constants import CHECKPOINTS_DIR
@@ -26,7 +27,7 @@ class Trainer(ABC):
     watch_modules = (nn.Linear, nn.Conv2d)
 
     def __init__(self, model: nn.Module, criterion: nn.Module, dataset_name: str, accuracy_measure: Accuracy = None,
-                 env_suffix='', checkpoint_dir=CHECKPOINTS_DIR):
+                 env_suffix='', checkpoint_dir=CHECKPOINTS_DIR, mutual_info=MutualInfoKMeans()):
         if torch.cuda.is_available():
             model = model.cuda()
         self.model = model
@@ -48,7 +49,7 @@ class Trainer(ABC):
                 accuracy_measure = AccuracyArgmax()
         self.accuracy_measure = accuracy_measure
         self.monitor = Monitor(test_loader=get_data_loader(self.dataset_name, train=False),
-                               accuracy_measure=self.accuracy_measure)
+                               accuracy_measure=self.accuracy_measure, mutual_info=mutual_info)
         for name, layer in find_named_layers(self.model, layer_class=self.watch_modules):
             self.monitor.register_layer(layer, prefix=name)
         images, labels = next(iter(self.train_loader))

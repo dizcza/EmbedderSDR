@@ -2,14 +2,12 @@ import math
 from typing import List
 
 import numpy as np
-import sklearn.decomposition
 import torch
 import torch.nn as nn
 import torch.utils.data
 import torch.utils.data
-from tqdm import tqdm
 
-from monitor.mutual_info.mutual_info import MutualInfo, AccuracyFromMutualInfo
+from monitor.mutual_info._pca_preprocess import MutualInfoPCA
 from utils.algebra import onehot, exponential_moving_average
 from utils.constants import BATCH_SIZE
 
@@ -86,81 +84,43 @@ class MutualInfoNeuralEstimationTrainer:
             self.mutual_info_history = exponential_moving_average(self.mutual_info_history,
                                                                   window=self.filter_size)
         # convert nats to bits
-        self.mutual_info_history = np.multiply(self.mutual_info_history, MutualInfo.log2e)
+        self.mutual_info_history = np.multiply(self.mutual_info_history, MutualInfoPCA.log2e)
 
     def get_mutual_info(self):
         fourth_quantile = self.mutual_info_history[-len(self.mutual_info_history) // 4:]
         return np.mean(fourth_quantile)
 
 
-class MutualInfoNeuralEstimation(MutualInfo):
+class MutualInfoNeuralEstimation(MutualInfoPCA):
 
-    def __init__(self, estimate_size=float('inf'), estimate_epochs=5, input_pca_size=100, noise_variance=0.,
-                 debug=False):
+    def __init__(self, estimate_size=None, pca_size=100, debug=False, estimate_epochs=5, noise_variance=0.):
         """
         :param estimate_size: number of samples to estimate mutual information from
         :param estimate_epochs: total estimation epochs to run
-        :param input_pca_size: transform input data to this size;
+        :param pca_size: transform input data to this size;
                                pass None to use original raw input data (no transformation is applied)
         :param noise_variance: how much noise to add to input and targets
         :param debug: plot MINE training curves?
         """
-        super().__init__(estimate_size=estimate_size, debug=debug)
+        super().__init__(estimate_size=estimate_size, pca_size=pca_size, debug=debug)
         self.estimate_epochs = estimate_epochs
         self.noise_sampler = torch.distributions.normal.Normal(loc=0, scale=math.sqrt(noise_variance))
         self.trainers = {}  # MutualInformationNeuralEstimation trainers for both input X- and target Y-data
-        self.input_size = input_pca_size
+        self.input_size = None
         self.target_size = None
 
     def extra_repr(self):
-        return super().extra_repr() + f"; estimate_epochs={self.estimate_epochs}; input_size={self.input_size}; " \
-            f"noise_variance={self.noise_sampler.variance}; " \
+        return super().extra_repr() + f"; noise_variance={self.noise_sampler.variance}; " \
             f"MINETrainer(filter_size={MutualInfoNeuralEstimationTrainer.filter_size}, " \
             f"filter_rounds={MutualInfoNeuralEstimationTrainer.filter_rounds}, " \
             f"optimizer.lr={MutualInfoNeuralEstimationTrainer.learning_rate}); " \
             f"MINE(hidden_units={MutualInfoNeuralEstimationNetwork.hidden_units})"
 
-    def prepare_input_raw(self):
-        inputs = []
-        targets = []
-        for images, labels in tqdm(self.eval_batches(), total=len(self.eval_loader),
-                                   desc="MutualInfo: storing raw input data"):
-            inputs.append(images.flatten(start_dim=1))
-            targets.append(labels)
-        self.quantized['input'] = torch.cat(inputs, dim=0)
+    def prepare_input_finished(self):
         self.input_size = self.quantized['input'].shape[1]
-
-        targets = torch.cat(targets, dim=0)
-        self.target_size = len(targets.unique())
-        self.accuracy_estimator = AccuracyFromMutualInfo(n_classes=self.target_size)
+        self.target_size = len(self.quantized['target'].unique())
         # one-hot encoded labels are better fit than argmax
-        self.quantized['target'] = onehot(targets).type(torch.float32)
-
-    def prepare_input(self):
-        if self.input_size is None:
-            self.prepare_input_raw()
-            return
-        targets = []
-        pca = sklearn.decomposition.IncrementalPCA(n_components=self.input_size, copy=False, batch_size=BATCH_SIZE)
-        for images, labels in tqdm(self.eval_batches(), total=len(self.eval_loader),
-                                   desc="MutualInfo: quantizing input data. Stage 1"):
-            images = images.flatten(start_dim=1)
-            pca.partial_fit(images, labels)
-            targets.append(labels)
-        targets = torch.cat(targets, dim=0)
-        self.target_size = len(targets.unique())
-        self.accuracy_estimator = AccuracyFromMutualInfo(n_classes=self.target_size)
-        # one-hot encoded labels are better fit than argmax
-        self.quantized['target'] = onehot(targets).type(torch.float32)
-
-        inputs = []
-        for images, _ in tqdm(self.eval_batches(), total=len(self.eval_loader),
-                              desc="MutualInfo: quantizing input data. Stage 2"):
-            images = images.flatten(start_dim=1)
-            images_transformed = pca.transform(images)
-            images_transformed = torch.from_numpy(images_transformed).type(torch.float32)
-            inputs.append(images_transformed)
-        self.quantized['input'] = torch.cat(inputs, dim=0)
+        self.quantized['target'] = onehot(self.quantized['target']).type(torch.float32)
 
     def process_activations(self, layer_name: str, activations: List[torch.FloatTensor]):
         activations = torch.cat(activations, dim=0)

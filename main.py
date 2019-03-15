@@ -1,5 +1,7 @@
 import os
 
+os.environ['FULL_FORWARD_PASS_SIZE'] = '10000'
+
 import torch
 import torch.nn as nn
 import torchvision.models
@@ -12,13 +14,12 @@ from loss import *
 from models import *
 from monitor.accuracy import AccuracyArgmax
 from monitor.monitor import Monitor
+from monitor.mutual_info import MutualInfoKMeans
 from trainer import *
 from utils.common import set_seed
 from utils.constants import IMAGES_DIR
 from utils.domain import MonitorLevel
 from utils.normalize import NormalizeInverse
-
-os.environ['FULL_FORWARD_PASS_SIZE'] = '10000'
 
 
 def get_optimizer_scheduler(model: nn.Module):
@@ -41,7 +42,7 @@ def train_mask():
     transform = torchvision.transforms.Compose([torchvision.transforms.Resize(size=(224, 224)),
                                                 torchvision.transforms.ToTensor(), normalize])
     accuracy_measure = AccuracyArgmax()
-    monitor = Monitor(test_loader=None, accuracy_measure=accuracy_measure)
+    monitor = Monitor(test_loader=None, accuracy_measure=accuracy_measure, mutual_info=MutualInfoKMeans())
     monitor.open(env_name='mask')
     monitor.normalize_inverse = NormalizeInverse(mean=normalize.mean, std=normalize.std)
     image = Image.open(IMAGES_DIR / "flute.jpg")

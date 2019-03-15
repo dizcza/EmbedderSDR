@@ -11,11 +11,12 @@ from sklearn.metrics import confusion_matrix, pairwise
 
 from monitor.accuracy import calc_accuracy, full_forward_pass, Accuracy, AccuracyArgmax
 from monitor.batch_timer import timer, ScheduleStep
-from monitor.mutual_info import MutualInfoKMeans, MutualInfoNeuralEstimation
+from monitor.mutual_info.mutual_info import MutualInfo
 from monitor.var_online import VarianceOnline
 from monitor.viz import VisdomMighty
 from utils.domain import AdversarialExamples, MonitorLevel
 from utils.normalize import get_normalize_inverse
+from utils.common import clone_cpu
 
 
 class ParamRecord(object):
@@ -29,9 +30,7 @@ class ParamRecord(object):
 
     def update_signs(self) -> float:
         param = self.param
-        new_data = param.data.cpu()
-        if new_data is param.data:
-            new_data = new_data.clone()
+        new_data = clone_cpu(param.data)
         if self.prev_sign is None:
             self.prev_sign = new_data
         sign_flips = (new_data * self.prev_sign < 0).sum().item()
@@ -70,10 +69,11 @@ class ParamsDict(UserDict):
 class Monitor(object):
     n_classes_format_ytickstep_1 = 10
 
-    def __init__(self, test_loader: torch.utils.data.DataLoader, accuracy_measure: Accuracy):
+    def __init__(self, test_loader: torch.utils.data.DataLoader, accuracy_measure: Accuracy, mutual_info: MutualInfo):
         """
         :param test_loader: dataloader to test model performance at each epoch_finished() call
         :param accuracy_measure: argmax or centroid embeddings accuracy measure
+        :param mutual_info: mutual information estimator
         """
         self.timer = timer
         self.test_loader = test_loader
@@ -84,8 +84,7 @@ class Monitor(object):
             self.normalize_inverse = get_normalize_inverse(self.test_loader.dataset.transform)
         self.accuracy_measure = accuracy_measure
         self.param_records = ParamsDict()
-        estimate_size = int(os.getenv('FULL_FORWARD_PASS_SIZE', 1000))
-        self.mutual_info = MutualInfoKMeans(estimate_size=estimate_size, debug=False)
+        self.mutual_info = mutual_info
         self.functions = []
 
     @property

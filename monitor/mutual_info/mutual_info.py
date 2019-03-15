@@ -1,4 +1,5 @@
 import math
+import os
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from functools import wraps
@@ -13,6 +14,7 @@ from tqdm import tqdm
 
 from monitor.batch_timer import ScheduleExp
 from utils.constants import BATCH_SIZE
+from utils.common import clone_cpu
 
 
 class LayersOrder:
@@ -39,36 +41,18 @@ class LayersOrder:
         return tuple(self.layers_ordered)
 
 
-class AccuracyFromMutualInfo:
-    def __init__(self, n_classes: int, resolution_bins=100):
-        self.accuracy_binned = np.linspace(start=1 / n_classes, stop=1, num=resolution_bins, endpoint=False)
-        entropy_correct = self.accuracy_binned * np.log2(1 / self.accuracy_binned)
-        entropy_incorrect = (1 - self.accuracy_binned) * np.log2((n_classes - 1) / (1 - self.accuracy_binned))
-        entropy_class_given_activations = entropy_correct + entropy_incorrect
-        entropy_classes = np.log2(n_classes)
-        self.mutual_info_binned = entropy_classes - entropy_class_given_activations
-
-    def estimate_accuracy(self, mutual_info_bits: float) -> float:
-        """
-        :param mutual_info_bits: mutual information between the hidden layer and the true class
-        :return: estimated layer accuracy
-        """
-        bin_id = np.digitize(mutual_info_bits, bins=self.mutual_info_binned)
-        bin_id = min(bin_id, len(self.accuracy_binned) - 1)
-        accuracy_estimated = self.accuracy_binned[bin_id]
-        return accuracy_estimated
-
-
 class MutualInfo(ABC):
     log2e = math.log2(math.e)
     n_bins_default = 20
     ignore_layers = (nn.Conv2d,)  # poor estimate
 
-    def __init__(self, estimate_size=float('inf'), debug=False):
+    def __init__(self, estimate_size=None, debug=False):
         """
         :param estimate_size: number of samples to estimate mutual information from
         :param debug: plot bins distribution?
         """
+        if estimate_size is None:
+            estimate_size = float(os.getenv('FULL_FORWARD_PASS_SIZE', 'inf'))
         self.estimate_size = estimate_size
         self.debug = debug
         self.activations = defaultdict(list)
@@ -76,7 +60,6 @@ class MutualInfo(ABC):
         self.information = {}
         self.is_active = False
         self.eval_loader = None
-        self.accuracy_estimator = None
         self.layer_to_name = {}
 
     def __repr__(self):
@@ -131,7 +114,6 @@ class MutualInfo(ABC):
             classifier.partial_fit(images, labels)
             targets.append(labels)
         targets = torch.cat(targets, dim=0)
-        self.accuracy_estimator = AccuracyFromMutualInfo(n_classes=len(targets.unique()))
         self.quantized['target'] = targets.numpy()
 
         centroids_predicted = []
@@ -179,9 +161,7 @@ class MutualInfo(ABC):
         layer_name = self.layer_to_name[module]
         if sum(map(len, self.activations[layer_name])) > self.estimate_size:
             return
-        tensor_output_clone = tensor_output.cpu()
-        if tensor_output_clone is tensor_output:
-            tensor_output_clone = tensor_output_clone.clone()
+        tensor_output_clone = clone_cpu(tensor_output)
         tensor_output_clone = tensor_output_clone.flatten(start_dim=1)
         self.activations[layer_name].append(tensor_output_clone)
 
@@ -189,7 +169,7 @@ class MutualInfo(ABC):
         for hname, activations in self.activations.items():
             title = f'Activations histogram: {hname}'
             activations = torch.cat(activations, dim=0)
-            viz.histogram(activations.view(-1), win=title, opts=dict(
+            viz.histogram(activations.flatten(), win=title, opts=dict(
                 xlabel='neuron value',
                 ylabel='neuron counts',
                 title=title,
@@ -197,18 +177,6 @@ class MutualInfo(ABC):
 
     def _plot_debug(self, viz):
         self.plot_activations_hist(viz)
-
-    def estimate_accuracy(self):
-        """
-        Make sure to call this function before the information is cleared.
-        :return: dict of estimated accuracies from mutual information between each layer and the true class
-        """
-        accuracy = {}
-        for layer_name in self.layer_to_name.values():
-            if layer_name in self.information:
-                layer_information = self.information[layer_name][1]  # take I(T, Y)
-                accuracy[layer_name] = self.accuracy_estimator.estimate_accuracy(mutual_info_bits=layer_information)
-        return accuracy
 
     def plot(self, viz):
         assert not self.is_active, "Wait, not finished yet."
