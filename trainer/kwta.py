@@ -56,17 +56,26 @@ class KWTAScheduler:
 
 
 class TrainerGradKWTA(TrainerGrad):
-    watch_modules = TrainerGrad.watch_modules + (KWinnersTakeAll, SynapticScaling)
-
     """
+    Trainer for neural networks with k-winners-take-all (kWTA) activation function.
     If the model does not have any KWinnerTakeAll layers, it works just as TrainerGrad.
     """
+
+    watch_modules = TrainerGrad.watch_modules + (KWinnersTakeAll, SynapticScaling)
 
     def __init__(self, model: nn.Module, criterion: nn.Module, dataset_name: str,
                  optimizer: torch.optim.Optimizer,
                  scheduler: Union[_LRScheduler, ReduceLROnPlateau, None] = None,
                  kwta_scheduler: Optional[KWTAScheduler] = None,
                  **kwargs):
+        """
+        :param model: NN model
+        :param criterion: loss function
+        :param dataset_name: one of "MNIST", "CIFAR10", "Caltech256"
+        :param optimizer: gradient-based optimizer (SGD, Adam)
+        :param scheduler: learning rate scheduler
+        :param kwta_scheduler: kWTA sparsity and hardness scheduler
+        """
         super().__init__(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
                          scheduler=scheduler, **kwargs)
         if not any(find_layers(self.model, layer_class=KWinnersTakeAll)):

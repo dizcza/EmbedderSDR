@@ -31,6 +31,10 @@ class _KWinnersTakeAllFunction(torch.autograd.Function):
 
 
 class KWinnersTakeAll(SerializableModule):
+    """
+    Non differentiable original k-winners-take-all activation function.
+    It finds the top `k` units in a vector, sets them to one and the rest to zero.
+    """
 
     state_attr = ["sparsity"]
 
@@ -51,6 +55,12 @@ class KWinnersTakeAll(SerializableModule):
 
 
 class KWinnersTakeAllSoft(KWinnersTakeAll):
+    """
+    Differentiable version of k-winners-take-all activation function.
+    Instead of a hard sign, it places the top `k` units of a vector on the right side of sigmod
+      and the rest - on the left side of sigmoid.
+    Hardness defines how well sigmoid resembles sign function.
+    """
 
     state_attr = KWinnersTakeAll.state_attr + ['hardness']
 

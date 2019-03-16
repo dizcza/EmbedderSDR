@@ -49,7 +49,7 @@ class MeanOnlineBatch(MeanOnline):
 
 class VarianceOnline(MeanOnline):
     """
-    Online updating sample mean and unbiased variance in a single pass.
+    Welford's online algorithm of estimating population mean and variance.
     """
 
     def __init__(self, tensor=None):
@@ -61,6 +61,7 @@ class VarianceOnline(MeanOnline):
         if self.var is None:
             self.var = torch.zeros_like(self.mean)
         else:
+            # todo check correctness
             self.var = (self.count - 2) / (self.count - 1) * self.var + torch.pow(new_tensor - self.mean, 2) / self.count
 
     def get_std(self):

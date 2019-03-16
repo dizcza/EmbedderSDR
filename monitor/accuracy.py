@@ -100,6 +100,8 @@ class AccuracyArgmax(Accuracy):
 class AccuracyEmbedding(Accuracy):
     """
     Calculates the accuracy of embedding vectors.
+    The mean embedding vector is kept for each class.
+    Prediction is based on the closest centroid ID.
     """
 
     def __init__(self, metric='cosine'):

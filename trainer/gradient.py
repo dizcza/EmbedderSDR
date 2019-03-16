@@ -16,6 +16,13 @@ class TrainerGrad(Trainer):
                  optimizer: torch.optim.Optimizer,
                  scheduler: Union[_LRScheduler, ReduceLROnPlateau, None] = None,
                  **kwargs):
+        """
+        :param model: NN model
+        :param criterion: loss function
+        :param dataset_name: one of "MNIST", "CIFAR10", "Caltech256"
+        :param optimizer: gradient-based optimizer (SGD, Adam)
+        :param scheduler: learning rate scheduler
+        """
         super().__init__(model, criterion, dataset_name, **kwargs)
         self.optimizer = optimizer
         self.scheduler = scheduler

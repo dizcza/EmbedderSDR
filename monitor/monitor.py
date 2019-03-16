@@ -19,7 +19,12 @@ from utils.normalize import get_normalize_inverse
 from utils.common import clone_cpu
 
 
-class ParamRecord(object):
+class ParamRecord:
+    """
+    Tracks gradient variance, sign flips of param's data.
+    ParamRecords are created by Monitor.
+    """
+
     def __init__(self, param: nn.Parameter, monitor_level: MonitorLevel = MonitorLevel.DISABLED):
         self.param = param
         self.monitor_level = monitor_level
@@ -66,7 +71,7 @@ class ParamsDict(UserDict):
         self.n_updates = 0
 
 
-class Monitor(object):
+class Monitor:
     n_classes_format_ytickstep_1 = 10
 
     def __init__(self, test_loader: torch.utils.data.DataLoader, accuracy_measure: Accuracy, mutual_info: MutualInfo):

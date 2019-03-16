@@ -9,7 +9,7 @@ To show the feasibility of the project, first, I've trained supervised SDR embed
 
 ### Sparse Distributed Representation
 
-Binary sparse distributed representations are formed with k-winners-take-all activation function (kWTA), followed by a binarization. It replaces the last softmax layer in neural networks. kWTA layer implementation is [here](models/kwta.py).
+Binary sparse distributed representations are formed with [k-winners-take-all](https://en.wikipedia.org/wiki/Winner-take-all_\(computing\)) activation function (kWTA), followed by a binarization. It replaces the last softmax layer in neural networks. kWTA layer implementation is [here](models/kwta.py).
 
 
 ### Ideas

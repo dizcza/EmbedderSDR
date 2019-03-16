@@ -28,6 +28,17 @@ class Trainer(ABC):
 
     def __init__(self, model: nn.Module, criterion: nn.Module, dataset_name: str, accuracy_measure: Accuracy = None,
                  env_suffix='', checkpoint_dir=CHECKPOINTS_DIR, mutual_info=MutualInfoKMeans()):
+        """
+        :param model: NN model
+        :param criterion: loss function
+        :param dataset_name: one of "MNIST", "CIFAR10", "Caltech256"
+        :param accuracy_measure: depending on the loss function, the predicted label could be either
+                                 - argmax (cross-entropy loss)
+                                 - closest centroid ID (triplet loss)
+        :param env_suffix: monitor environment suffix
+        :param checkpoint_dir: path to the directory where model checkpoints will be stored
+        :param mutual_info: mutual information estimator
+        """
         if torch.cuda.is_available():
             model = model.cuda()
         self.model = model

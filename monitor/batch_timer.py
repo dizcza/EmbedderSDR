@@ -4,7 +4,7 @@ from functools import wraps
 from typing import Callable
 
 
-class BatchTimer(object):
+class BatchTimer:
 
     def __init__(self):
         self.batches_in_epoch = 1  # will be set next
