@@ -56,6 +56,6 @@ def get_normalize_inverse(transform_composed: transforms.Compose):
     if transform_composed is None:
         return None
     for transform in transform_composed.transforms:
-        if isinstance(transform, transforms.Normalize):
+        if isinstance(transform, (transforms.Normalize, _NormalizeTensor)):
             return NormalizeInverse(mean=transform.mean, std=transform.std)
     return None
