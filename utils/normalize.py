@@ -6,8 +6,20 @@ from monitor.var_online import dataset_mean_std
 
 class _NormalizeTensor:
     def __init__(self, mean, std):
+        mean = self.as3d(mean)
+        std = self.as3d(std)
         self.mean = torch.as_tensor(mean, dtype=torch.float32)
         self.std = torch.as_tensor(std, dtype=torch.float32)
+
+    @staticmethod
+    def as3d(tensor):
+        """
+        :param tensor: (C,) or (C, H, W) Tensor
+        :return: (C, 1, 1) [unsqueezed] or (C, H, W) [original] Tensor
+        """
+        for dim_extra in range(3 - tensor.ndimension()):
+            tensor = tensor.unsqueeze(dim=-1)
+        return tensor
 
     def __call__(self, tensor):
         """
