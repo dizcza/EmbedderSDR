@@ -95,7 +95,7 @@ class Caltech256(torchvision.datasets.ImageFolder):
 
 
 class Caltech10(Caltech256):
-    classes = ("001.ak47", "009.bear", "010.beer-mug", "024.butterfly", "025.cactus",
+    classes = ("169.radio-telescope", "009.bear", "010.beer-mug", "024.butterfly", "025.cactus",
                "028.camel", "030.canoe", "055.dice", "056.dog", "060.duck")
 
     def __init__(self, train=True):
