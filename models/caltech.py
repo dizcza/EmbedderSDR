@@ -7,15 +7,19 @@ import torchvision
 
 from models.kwta import KWinnersTakeAll
 
-SOFTMAX_FEATURES = 256
-KWTA_FEATURES = 512
+
+CALTECH_OUT_FEATURES = {
+    'softmax': 256,
+    'kwta': 512
+}
 
 
 def _classifier(in_features: int, kwta: Optional[nn.Module]):
     if kwta:
-        return nn.Sequential(nn.Linear(in_features=in_features, out_features=KWTA_FEATURES, bias=False), kwta)
+        return nn.Sequential(nn.Linear(in_features=in_features, out_features=CALTECH_OUT_FEATURES['kwta'],
+                                       bias=False), kwta)
     else:
-        return nn.Linear(in_features=in_features, out_features=SOFTMAX_FEATURES)
+        return nn.Linear(in_features=in_features, out_features=CALTECH_OUT_FEATURES['softmax'])
 
 
 def make_no_grad(model):
@@ -23,9 +27,13 @@ def make_no_grad(model):
         param.requires_grad_(False)
 
 
-def set_softmax_out_features(out_features):
-    global SOFTMAX_FEATURES
-    SOFTMAX_FEATURES = out_features
+def set_out_features(key: str, value: int):
+    """
+    :param key: either 'sotfmax' mode or 'kwta'
+    :param value: new number of neurons in the last layer
+    """
+    assert key in CALTECH_OUT_FEATURES
+    CALTECH_OUT_FEATURES[key] = value
 
 
 def resnet18(pretrained=True, kwta=None):
@@ -38,7 +46,7 @@ def resnet18(pretrained=True, kwta=None):
 def squeezenet1_1(pretrained=True, kwta=None):
     model = torchvision.models.squeezenet1_1(pretrained=pretrained)
     make_no_grad(model)
-    model.num_classes = SOFTMAX_FEATURES
+    model.num_classes = CALTECH_OUT_FEATURES['softmax']
     final_conv = nn.Conv2d(512, model.num_classes, kernel_size=1)
     nn.init.normal_(final_conv.weight, mean=0.0, std=0.01)
     classifier = [nn.Dropout(p=0.5), final_conv, nn.ReLU(inplace=True), nn.AvgPool2d(13, stride=1)]
