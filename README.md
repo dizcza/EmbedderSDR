@@ -57,4 +57,4 @@ K-winners-take-all:
 
 On the right plot, kWTA's output forms binary sparse distributed representation, averaged across samples for each class (label). Some neurons may respond to different patterns, but their ensemble activation uniquely encodes a stimulus (distributed coding).
 
-For more results, go to [http://ec2-18-234-90-227.compute-1.amazonaws.com:8097](http://ec2-18-234-90-227.compute-1.amazonaws.com:8097). Give your browser a few minutes to parse the json data. Choose the environment with `TrainerGradKWTA` - this is the trainer with kWTA activation function.
+For more results, go to [http://85.217.171.57:8097/](http://85.217.171.57:8097/). Give your browser a few minutes to parse the json data. Choose the environment with `TrainerGradKWTA` - this is the trainer with kWTA activation function.
