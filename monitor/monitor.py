@@ -29,6 +29,7 @@ class ParamRecord:
         self.param = param
         self.monitor_level = monitor_level
         self.grad_variance = VarianceOnline()
+        self.variance = VarianceOnline()
         self.prev_sign = None
         self.initial_data = None
         self.initial_norm = param.data.norm(p=2).item()
@@ -60,6 +61,7 @@ class ParamsDict(UserDict):
             param_record.update_grad_variance()
         for param_record in filter(lambda precord: precord.monitor_level is MonitorLevel.FULL, self.values()):
             self.sign_flips += param_record.update_signs()
+            param_record.variance.update(param_record.param.data.cpu())
 
     def plot_sign_flips(self, viz: VisdomMighty):
         viz.line_update(y=self.sign_flips / self.n_updates, opts=dict(
@@ -177,6 +179,22 @@ class Monitor:
                     title=name,
                 ))
 
+    def update_weight_trace_signal_to_noise_ratio(self):
+        for name, param_record in self.param_records.items():
+            name = f"Weight SNR {name}"
+            param_norm = param_record.param.data.norm(p=2).cpu()
+            mean, std = param_record.variance.get_mean_std()
+            param_record.variance.reset()
+            snr = mean / (std + 1e-6)
+            snr /= param_norm
+            snr.pow_(2)
+            snr.clamp_max_(snr.mean() + 2 * snr.std())  # 95 % confidence interval
+            self.viz.histogram(X=snr.view(-1), win=name, opts=dict(
+                xlabel='Param SNR',
+                ylabel='# bins (distribution)',
+                title=name,
+            ))
+
     def update_gradient_signal_to_noise_ratio(self):
         snr = []
         legend = []
@@ -206,7 +224,7 @@ class Monitor:
         self.viz.line_update(y=snr, opts=dict(
             xlabel='Epoch',
             ylabel='||Mean(∇Wi)|| / ||STD(∇Wi)||',
-            title='Signal to Noise Ratio',
+            title='Grad Signal to Noise Ratio',
             legend=legend,
             xtype='log',
             ytype='log',
@@ -310,6 +328,7 @@ class Monitor:
         if self._advanced_monitoring_level is MonitorLevel.FULL:
             self.param_records.plot_sign_flips(self.viz)
             self.update_initial_difference()
+            self.update_weight_trace_signal_to_noise_ratio()
 
     def register_layer(self, layer: nn.Module, prefix: str):
         self.mutual_info.register(layer, name=prefix)
