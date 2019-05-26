@@ -14,7 +14,7 @@ from loss import *
 from models import *
 from monitor.accuracy import AccuracyArgmax
 from monitor.monitor import Monitor
-from monitor.mutual_info import MutualInfoKMeans
+from monitor.mutual_info import *
 from trainer import *
 from utils.common import set_seed
 from utils.constants import IMAGES_DIR
@@ -60,14 +60,14 @@ def train_mask():
 
 
 def train_grad(n_epoch=500, dataset_name="MNIST"):
-    model = EmbedderSDR(last_layer=nn.Linear(128, 10), dataset_name=dataset_name)
+    model = EmbedderSDR(last_layer=nn.Sequential(nn.ReLU(inplace=True), nn.Linear(128, 10)), dataset_name=dataset_name)
     optimizer, scheduler = get_optimizer_scheduler(model)
     criterion = nn.CrossEntropyLoss()
     trainer = TrainerGrad(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
-                          scheduler=scheduler)
+                          scheduler=scheduler, mutual_info=MutualInfoIDTxl())
     # trainer.restore()
     trainer.monitor.advanced_monitoring(level=MonitorLevel.SIGNAL_TO_NOISE)
-    trainer.train(n_epoch=n_epoch, mutual_info_layers=10)
+    trainer.train(n_epoch=n_epoch, mutual_info_layers=2)
 
 
 def train_kwta(n_epoch=500, dataset_name="CIFAR10"):
@@ -133,8 +133,8 @@ def train_caltech(n_epoch=500, dataset_name="Caltech256"):
 if __name__ == '__main__':
     set_seed(26)
     torch.backends.cudnn.benchmark = True
-    train_kwta()
-    # train_grad()
+    # train_kwta()
+    train_grad()
     # test()
     # train_pretrained()
     # train_caltech()

@@ -6,3 +6,9 @@ visdom==0.1.8.5
 numpy==1.15.4
 psutil==5.4.7
 requests==2.20.1
+
+# https://github.com/pwollstadt/IDTxl
+JPype1>=0.6.3
+pyopencl>=2018.2.5
+h5py>=2.8.0  # requires libhdf5-dev
+networkx>=2.3
