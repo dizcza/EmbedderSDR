@@ -64,7 +64,7 @@ def train_grad(n_epoch=500, dataset_name="MNIST"):
     optimizer, scheduler = get_optimizer_scheduler(model)
     criterion = nn.CrossEntropyLoss()
     trainer = TrainerGrad(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
-                          scheduler=scheduler, mutual_info=MutualInfoIDTxl())
+                          scheduler=scheduler)
     # trainer.restore()
     trainer.monitor.advanced_monitoring(level=MonitorLevel.SIGNAL_TO_NOISE)
     trainer.train(n_epoch=n_epoch, mutual_info_layers=2)

@@ -17,7 +17,7 @@ class MutualInfoPCA(MutualInfo, ABC):
         :param estimate_size: number of samples to estimate mutual information from
         :param pca_size: transform input data to this size;
                                pass None to use original raw input data (no transformation is applied)
-        :param debug: plot MINE training curves?
+        :param debug: plot bins distribution?
         """
         super().__init__(estimate_size=estimate_size, debug=debug)
         self.pca_size = pca_size
