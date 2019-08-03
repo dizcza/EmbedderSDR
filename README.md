@@ -2,10 +2,7 @@
 
 The idea is to take advantage of binary sparse distributed representation (SDR) of embeddings in some domain such as computer vision.
 
-The goal of this project is training a neural network without loss and gradient backpropagation - using the power of association of two SDR vectors (refer to [Willshaw's model, 1969](https://redwood.berkeley.edu/wp-content/uploads/2018/08/willshaw1969.pdf)) in an unsupervised fashion.
-
-
-To show the feasibility of the project, first, I've trained supervised SDR embedder classifiers on MNIST, CIFAR10, and Caltech256 datasets.
+The goal of this project is gradient-free optimization by sparse vectors association in an unsupervised fashion (refer to [Willshaw's model, 1969](https://redwood.berkeley.edu/wp-content/uploads/2018/08/willshaw1969.pdf)). While gradient-free optimization is not achieved yet, here I demonstrate how to construct meaningful (feature preserved, distributed) binary sparse vectors in deep learning with TripletLoss.
 
 ### Sparse Distributed Representation
 
@@ -58,3 +55,23 @@ K-winners-take-all:
 On the right plot, kWTA's output forms binary sparse distributed representation, averaged across samples for each class (label). Some neurons may respond to different patterns, but their ensemble activation uniquely encodes a stimulus (distributed coding).
 
 For more results, go to [http://85.217.171.57:8097/](http://85.217.171.57:8097/). Give your browser a few minutes to parse the json data. Choose the environment with `TrainerGradKWTA` - this is the trainer with kWTA activation function.
+
+### Articles, implemented and used in this work
+
+1. Fong, R. C., & Vedaldi, A. (2017). Interpretable explanations of black boxes by meaningful perturbation.
+    * Paper: https://arxiv.org/abs/1704.03296
+    * Used in: `trainer/mask.py`
+
+2. Belghazi, M. I., Baratin, A., Rajeswar, S., Ozair, S., Bengio, Y., Courville, A., & Hjelm, R. D. (2018). Mine: mutual information neural estimation.
+    * Paper: https://arxiv.org/abs/1801.04062
+    * Used in: `monitor/mutual_info/neural_estimation.py`
+
+3. Kraskov, A., Stögbauer, H., & Grassberger, P. (2004). Estimating mutual information.
+    * Paper: https://arxiv.org/abs/1208.4475
+    * Used in: `monitor/mutual_info/npeet.py`
+    * Original source code: https://github.com/gregversteeg/NPEET
+
+4. Wollstadt, P., Lizier, J. T., Vicente, R., Finn, C., Martínez-Zarzuela, M., Mediano, P., ... & Wibral, M. (2018). IDTxl: The Information Dynamics Toolkit xl: a Python package for the efficient analysis of multivariate information dynamics in networks.
+    * Paper: https://arxiv.org/abs/1807.10459
+    * Used in `monitor/mutual_info/idtxl_jidt.py`
+    * Original source code: https://github.com/pwollstadt/IDTxl
