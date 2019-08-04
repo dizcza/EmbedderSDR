@@ -1,6 +1,7 @@
 import math
 
 import torch
+import torch.nn as nn
 
 from utils.constants import SPARSITY
 from utils.layers import SerializableModule
@@ -30,13 +31,11 @@ class _KWinnersTakeAllFunction(torch.autograd.Function):
         return grad_output, None
 
 
-class KWinnersTakeAll(SerializableModule):
+class KWinnersTakeAll(nn.Module):
     """
     Non differentiable original k-winners-take-all activation function.
     It finds the top `k` units in a vector, sets them to one and the rest to zero.
     """
-
-    state_attr = ["sparsity"]
 
     def __init__(self, sparsity=SPARSITY):
         """
@@ -44,14 +43,14 @@ class KWinnersTakeAll(SerializableModule):
         """
         super().__init__()
         assert 0. <= sparsity <= 1., "Sparsity should lie in (0, 1) interval"
-        self.sparsity = sparsity
+        self.register_buffer("sparsity", torch.tensor(sparsity, dtype=torch.float32))
 
     def forward(self, x):
         x = _KWinnersTakeAllFunction.apply(x, self.sparsity)
         return x
 
     def extra_repr(self):
-        return f'sparsity={self.sparsity}'
+        return f'sparsity={self.sparsity:.3f}'
 
 
 class KWinnersTakeAllSoft(KWinnersTakeAll):
@@ -62,8 +61,6 @@ class KWinnersTakeAllSoft(KWinnersTakeAll):
     Hardness defines how well sigmoid resembles sign function.
     """
 
-    state_attr = KWinnersTakeAll.state_attr + ['hardness']
-
     def __init__(self, sparsity=SPARSITY, hardness=1):
         """
         :param sparsity: how many bits leave active
@@ -71,7 +68,7 @@ class KWinnersTakeAllSoft(KWinnersTakeAll):
                          the larger the hardness, the closer sigmoid to the true kwta distribution.
         """
         super().__init__(sparsity=sparsity)
-        self.hardness = hardness
+        self.register_buffer("hardness", torch.tensor(hardness, dtype=torch.float32))
 
     def forward(self, x):
         if self.training:
@@ -91,12 +88,12 @@ class SynapticScaling(SerializableModule):
     Wrapper for KWTA to account synaptic scaling plasticity.
     """
 
-    state_attr = ['synaptic_scale', 'frequency']
+    state_attr = ['frequency']
 
     def __init__(self, kwta_layer: KWinnersTakeAll, synaptic_scale=1.0):
         super().__init__()
         self.kwta = kwta_layer
-        self.synaptic_scale = synaptic_scale
+        self.register_buffer("synaptic_scale", torch.tensor(synaptic_scale, dtype=torch.float32))
         self.frequency = MeanOnlineBatch()
 
     @property
@@ -113,4 +110,4 @@ class SynapticScaling(SerializableModule):
         return x
 
     def extra_repr(self):
-        return f"synaptic_scale={self.synaptic_scale}"
+        return f"synaptic_scale={self.synaptic_scale:.3f}"
