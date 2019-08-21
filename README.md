@@ -75,3 +75,8 @@ For more results, go to [http://85.217.171.57:8097/](http://85.217.171.57:8097/)
     * Paper: https://arxiv.org/abs/1807.10459
     * Used in `monitor/mutual_info/idtxl_jidt.py`
     * Original source code: https://github.com/pwollstadt/IDTxl
+
+5. Ince, R. A., Giordano, B. L., Kayser, C., Rousselet, G. A., Gross, J., & Schyns, P. G. (2017). A statistical framework for neuroimaging data analysis based on mutual information estimated via a gaussian copula. Human brain mapping, 38(3), 1541-1573.
+    * Paper: http://dx.doi.org/10.1002/hbm.23471
+    * Used in `monitor/mutual_info/gcmi.py`
+    * Original source code: https://github.com/robince/gcmi
