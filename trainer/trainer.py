@@ -251,3 +251,22 @@ class Trainer(ABC):
                 if mask_explain:
                     self.train_mask()
                 self._epoch_finished(epoch, outputs_full, labels_full)
+
+    def run_idle(self, n_epoch=10):
+        """
+        Burn-out mode without returning the output.
+        Useful in combination with `DumpActivationsHook`.
+
+        :param n_epoch: number of epochs to run in idle
+        """
+        self.model.eval()
+        for epoch in range(self.timer.epoch, self.timer.epoch + n_epoch):
+            use_cuda = torch.cuda.is_available()
+            for images, labels in tqdm(self.train_loader,
+                                       desc="Epoch {:d}".format(epoch),
+                                       leave=False):
+                if use_cuda:
+                    images = images.cuda()
+                self.model(images)
+                self.timer.tick()
+        self.model.train()

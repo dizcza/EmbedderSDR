@@ -20,6 +20,7 @@ from utils.common import set_seed
 from utils.constants import IMAGES_DIR
 from utils.domain import MonitorLevel
 from utils.normalize import NormalizeInverse
+from utils.hooks import DumpActivationsHook
 
 
 def get_optimizer_scheduler(model: nn.Module):
@@ -130,11 +131,30 @@ def train_caltech(n_epoch=500, dataset_name="Caltech256"):
     trainer.train(n_epoch=n_epoch, mutual_info_layers=0, mask_explain=False)
 
 
+def dump_activations(n_epoch=2, dataset_name="MNIST"):
+    model = MLP(784, 128, 32, 10)
+    optimizer, scheduler = get_optimizer_scheduler(model)
+    criterion = nn.CrossEntropyLoss()
+    trainer = TrainerGrad(model=model, criterion=criterion,
+                          dataset_name=dataset_name, optimizer=optimizer,
+                          scheduler=scheduler)
+    trainer.train(n_epoch=n_epoch, mutual_info_layers=0)
+
+    # register forward hook
+    dumper = DumpActivationsHook(model)
+
+    # trigger hooks
+    trainer.run_idle(n_epoch=1)
+
+    # remove hooks when finished and continue training, if needed
+    dumper.remove_hooks()
+
+
 if __name__ == '__main__':
     set_seed(26)
-    torch.backends.cudnn.benchmark = True
+    # torch.backends.cudnn.benchmark = True
     # train_kwta()
-    train_grad()
+    dump_activations()
     # test()
     # train_pretrained()
     # train_caltech()

@@ -13,32 +13,9 @@ from sklearn import cluster
 from tqdm import tqdm
 
 from monitor.batch_timer import ScheduleExp
-from utils.constants import BATCH_SIZE
 from utils.common import clone_cpu
-
-
-class LayersOrder:
-    def __init__(self, model: nn.Module):
-        self.hooks = []
-        self.layers_ordered = []
-        self.register_hooks(model)
-
-    def register_hooks(self, model: nn.Module):
-        children = tuple(model.children())
-        if any(children):
-            for layer in children:
-                self.register_hooks(layer)
-        else:
-            handle = model.register_forward_pre_hook(self.append_layer)
-            self.hooks.append(handle)
-
-    def append_layer(self, layer, tensor_input):
-        self.layers_ordered.append(layer)
-
-    def get_layers_ordered(self):
-        for handle in self.hooks:
-            handle.remove()
-        return tuple(self.layers_ordered)
+from utils.constants import BATCH_SIZE
+from utils.hooks import LayersOrderHook
 
 
 class MutualInfo(ABC):
@@ -129,7 +106,7 @@ class MutualInfo(ABC):
 
         images_batch, _ = next(self.eval_batches())
         image_sample = images_batch[:1]
-        layers_order = LayersOrder(model)
+        layers_order = LayersOrderHook(model)
         if torch.cuda.is_available():
             image_sample = image_sample.cuda()
         with torch.no_grad():
