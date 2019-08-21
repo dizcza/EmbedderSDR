@@ -43,12 +43,16 @@ class MutualInfoPCA(MutualInfo, ABC):
         if self.pca_size is None:
             self.prepare_input_raw()
             return
+        images_batch, _ = next(iter(self.eval_loader))
+        batch_size = images_batch.shape[0]
+        assert batch_size >= self.pca_size, \
+            f"Batch size {batch_size} has to be larger than PCA dim {self.pca_size} in order to run partial fit"
         targets = []
         pca = sklearn.decomposition.IncrementalPCA(n_components=self.pca_size, copy=False, batch_size=BATCH_SIZE)
         for images, labels in tqdm(self.eval_batches(), total=len(self.eval_loader),
                                    desc="MutualInfo: Applying PCA to input data. Stage 1"):
             if images.shape[0] < self.pca_size:
-                # n_components must be less or equal to the batch number of samples
+                # drop the last batch if it's too small
                 continue
             images = images.flatten(start_dim=1)
             pca.partial_fit(images, labels)
