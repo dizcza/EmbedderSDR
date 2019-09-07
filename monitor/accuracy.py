@@ -1,12 +1,12 @@
 import os
 from abc import ABC
 
+import sklearn.neighbors
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.utils.data
-import sklearn.neighbors
 
+from models.kwta import KWinnersTakeAllFunction
 from utils.algebra import compute_distance
 
 
@@ -143,6 +143,21 @@ class AccuracyEmbedding(Accuracy):
         distances = self.distances(outputs_test)
         proba = 1 - distances / distances.sum(dim=1).unsqueeze(1)
         return proba
+
+
+class AccuracyEmbeddingKWTA(AccuracyEmbedding):
+
+    def __init__(self, metric='cosine'):
+        super().__init__(metric=metric)
+        self.sparsity = 1.
+
+    def save(self, outputs_train, labels_train):
+        super().save(outputs_train=outputs_train, labels_train=labels_train)
+        # leave only k prominent values
+        self.centroids = KWinnersTakeAllFunction.apply(self.centroids, self.sparsity)
+
+    def extra_repr(self):
+        return super().extra_repr() + f", sparsity={self.sparsity:.3f}"
 
 
 class AccuracyKNN(Accuracy):

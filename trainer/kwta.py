@@ -11,6 +11,7 @@ from trainer.gradient import TrainerGrad
 from trainer.mask import MaskTrainerIndex
 from utils.layers import find_layers, find_named_layers
 from utils.prepare import prepare_eval
+from monitor.accuracy import AccuracyEmbeddingKWTA
 
 
 class KWTAScheduler:
@@ -79,13 +80,14 @@ class TrainerGradKWTA(TrainerGrad):
         super().__init__(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
                          scheduler=scheduler, **kwargs)
         if not any(find_layers(self.model, layer_class=KWinnersTakeAll)):
-            self.env_name = self.env_name + " (TrainerGrad)"
+            raise ValueError("When a model has no kWTA layer, use TrainerGrad")
         self.kwta_scheduler = kwta_scheduler
         if self.kwta_scheduler is not None and isinstance(self.criterion, LossFixedPattern):
             warnings.warn(f"{self.kwta_scheduler.__class__.__name__} is not recommended to use with "
                           f"{self.criterion.__class__.__name__}. Make sure kWTA sparsity does not "
                           f"change during the training.")
         self.mask_trainer_kwta = MaskTrainerIndex(image_shape=self.mask_trainer.image_shape)
+        self._update_accuracy_state()
 
     def monitor_functions(self):
         super().monitor_functions()
@@ -146,7 +148,21 @@ class TrainerGradKWTA(TrainerGrad):
         loss = super()._epoch_finished(epoch, outputs, labels)
         if self.kwta_scheduler is not None:
             self.kwta_scheduler.step(epoch=epoch)
+        self._update_accuracy_state()
         return loss
+
+    def _update_accuracy_state(self):
+        if not isinstance(self.accuracy_measure, AccuracyEmbeddingKWTA):
+            return
+        sparsities = set()
+        for kwta_layer in find_layers(self.model, layer_class=KWinnersTakeAll):
+            sparsities.add(kwta_layer.sparsity)
+        sparsities = sorted(sparsities)
+        if len(sparsities) > 1:
+            warnings.warn(f"Found {len(sparsities)} layers with different sparsities: {sparsities}. "
+                          f"Chose the lowest one for {self.accuracy_measure.__class__.__name__}.")
+        # finally, update accuracy_measure sparsity here
+        self.accuracy_measure.sparsity = sparsities[0]
 
     def train_mask(self):
         image, label = super().train_mask()

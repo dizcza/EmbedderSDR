@@ -230,7 +230,7 @@ class Monitor:
             ytype='log',
         ))
 
-    def plot_accuracy_confusion_matrix(self, labels_true, labels_predicted, mode):
+    def _plot_accuracy_confusion_matrix(self, labels_true, labels_predicted, mode):
         self.update_accuracy(accuracy=calc_accuracy(labels_true, labels_predicted), mode=mode)
         title = f"Confusion matrix '{mode}'"
         if len(labels_true.unique()) <= self.n_classes_format_ytickstep_1:
@@ -244,12 +244,12 @@ class Monitor:
 
     def update_accuracy_epoch(self, model: nn.Module, outputs_train, labels_train):
         outputs_test, labels_test = full_forward_pass(model, loader=self.test_loader)
-        self.plot_accuracy_confusion_matrix(labels_true=labels_train,
-                                            labels_predicted=self.accuracy_measure.predict(outputs_train),
-                                            mode='full train')
-        self.plot_accuracy_confusion_matrix(labels_true=labels_test,
-                                            labels_predicted=self.accuracy_measure.predict(outputs_test),
-                                            mode='full test')
+        self._plot_accuracy_confusion_matrix(labels_true=labels_train,
+                                             labels_predicted=self.accuracy_measure.predict(outputs_train),
+                                             mode='full train')
+        self._plot_accuracy_confusion_matrix(labels_true=labels_test,
+                                             labels_predicted=self.accuracy_measure.predict(outputs_test),
+                                             mode='full test')
 
     def plot_adversarial_examples(self, model: nn.Module, adversarial_examples: AdversarialExamples, n_show=10):
         images_orig, images_adv, labels_true = adversarial_examples

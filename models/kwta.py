@@ -1,24 +1,38 @@
 import math
+import warnings
 
 import torch
 import torch.nn as nn
 
+from monitor.var_online import MeanOnlineBatch
 from utils.constants import SPARSITY
 from utils.layers import SerializableModule
-from monitor.var_online import MeanOnlineBatch
 
 
 def get_kwta_threshold(tensor: torch.FloatTensor, sparsity: float):
+    """
+    Returns the threshold for kWTA activation function as if input tensor is a linear (batch x embedding_dim).
+
+    :param tensor: (batch_size, embedding_dim) linear or (batch_size, c, w, h) conv tensor
+    :param sparsity: kWTA sparsity
+    :return: threshold for kWTA activation function to apply
+    """
     unsqueeze_dim = [1] * (tensor.ndimension() - 1)
     tensor = tensor.view(tensor.shape[0], -1)
-    k_active = math.ceil(sparsity * tensor.shape[1])
+    embedding_dim = tensor.shape[1]
+    if embedding_dim < 2:
+        raise ValueError(f"Embedding dimension {embedding_dim} should be >= 2")
+    k_active = math.ceil(sparsity * embedding_dim)
+    if k_active == embedding_dim:
+        warnings.warn(f"kWTA sparsity {sparsity} is too high. Returning at least 1 non-zero element.")
+        k_active -= 1
     x_sorted, argsort = tensor.sort(dim=1, descending=True)
     threshold = x_sorted[:, [k_active - 1, k_active]].mean(dim=1)
     threshold = threshold.view(-1, *unsqueeze_dim)
     return threshold
 
 
-class _KWinnersTakeAllFunction(torch.autograd.Function):
+class KWinnersTakeAllFunction(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, tensor, sparsity: float):
@@ -46,7 +60,7 @@ class KWinnersTakeAll(nn.Module):
         self.register_buffer("sparsity", torch.tensor(sparsity, dtype=torch.float32))
 
     def forward(self, x):
-        x = _KWinnersTakeAllFunction.apply(x, self.sparsity)
+        x = KWinnersTakeAllFunction.apply(x, self.sparsity)
         return x
 
     def extra_repr(self):

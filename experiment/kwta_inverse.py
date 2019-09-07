@@ -7,7 +7,7 @@ import torchvision.transforms.functional
 from PIL import Image
 from tqdm import tqdm
 
-from models.kwta import _KWinnersTakeAllFunction
+from models.kwta import KWinnersTakeAllFunction
 from monitor.var_online import MeanOnline
 from monitor.viz import VisdomMighty
 from utils.algebra import factors_root
@@ -39,9 +39,9 @@ def kwta_inverse(embedding_dim=10000, sparsity=0.05, dataset="MNIST"):
     images_flatten = images.flatten(start_dim=2)
     weights = torch.randn(images_flatten.shape[2], embedding_dim)
     embeddings = images_flatten @ weights
-    kwta_embeddings = _KWinnersTakeAllFunction.apply(embeddings.clone(), sparsity)
+    kwta_embeddings = KWinnersTakeAllFunction.apply(embeddings.clone(), sparsity)
     before_inverse = kwta_embeddings @ weights.transpose(0, 1)
-    restored = _KWinnersTakeAllFunction.apply(before_inverse.clone(), sparsity_input)
+    restored = KWinnersTakeAllFunction.apply(before_inverse.clone(), sparsity_input)
 
     kwta_embeddings = kwta_embeddings.view(batch_size, channels, *factors_root(embedding_dim))
     restored = restored.view_as(images)
@@ -101,7 +101,7 @@ def kwta_translation_similarity(embedding_dim=10000, sparsity=0.05, translate=(1
         """
         images_flatten = images_input.flatten(start_dim=2)
         embeddings = images_flatten @ weights
-        kwta_embedding = _KWinnersTakeAllFunction.apply(embeddings.clone(), sparsity)
+        kwta_embedding = KWinnersTakeAllFunction.apply(embeddings.clone(), sparsity)
         return kwta_embedding
 
     kwta_orig = apply_kwta(images)
@@ -126,9 +126,9 @@ def surfplot(dataset="MNIST"):
             for j, sparsity in enumerate(sparsities):
                 weights = torch.randn(images_binary.shape[2], embedding_dim, device=images_binary.device)
                 embeddings = images_binary @ weights
-                kwta_embeddings = _KWinnersTakeAllFunction.apply(embeddings, sparsity)
+                kwta_embeddings = KWinnersTakeAllFunction.apply(embeddings, sparsity)
                 before_inverse = kwta_embeddings @ weights.transpose(0, 1)
-                restored = _KWinnersTakeAllFunction.apply(before_inverse, sparsity_channel)
+                restored = KWinnersTakeAllFunction.apply(before_inverse, sparsity_channel)
                 overlap = calc_overlap(images_binary, restored)
                 overlap_running_mean[i][j].update(overlap)
     overlap = torch.empty(len(embedding_dimensions), len(sparsities))
