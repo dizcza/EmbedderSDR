@@ -87,6 +87,9 @@ class MutualInfoNeuralEstimationTrainer:
         self.mutual_info_history = np.multiply(self.mutual_info_history, MutualInfoPCA.log2e)
 
     def get_mutual_info(self):
+        """
+        Returns the estimated lower bound of mutual information as the mean of the last quarter history points.
+        """
         fourth_quantile = self.mutual_info_history[-len(self.mutual_info_history) // 4:]
         return np.mean(fourth_quantile)
 

@@ -1,7 +1,3 @@
-"""
-Mutual Information Neural Estimation https://arxiv.org/pdf/1801.04062.pdf
-"""
-
 import math
 import random
 
@@ -9,15 +5,39 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.utils.data
-from tqdm import tqdm
+from tqdm import trange
 
 from monitor.mutual_info.kmeans import MutualInfoKMeans
 from monitor.mutual_info.neural_estimation import MutualInfoNeuralEstimationNetwork, MutualInfoNeuralEstimationTrainer
+from monitor.mutual_info.gcmi import micd
 from utils.common import set_seed
 from utils.constants import BATCH_SIZE
 
 
 def synthesize_log_softmax_data(n_samples=50000, n_classes=10, p_argmax=0.95, onehot=False):
+    """
+    Simulates a typical trained neural network softmax output probabilities.
+
+    Parameters
+    ----------
+    n_samples : int
+        No. of samples
+    n_classes : int
+        No. of unique classes
+    p_argmax : float
+        Network accuracy (softmax probability of the correctly predicted class).
+    onehot : bool
+        Return as one-hot encoded vectors (True) or a list of class indices (False).
+
+    Returns
+    -------
+    x_data : torch.FloatTensor
+        Simulated softmax probabilities of shape (n_samples, n_classes)
+    y_labels : torch.LongTensor
+        Ground truth labels (class indices) of shape
+            * (n_samples,), if `onehot` is False
+            * (n_samples, n_classes), otherwise
+    """
     x_data = torch.randn(n_samples, n_classes)
     y_labels = x_data.argmax(dim=1)
     x_argmax = x_data[range(x_data.shape[0]), y_labels]
@@ -44,26 +64,38 @@ def test_mine(var=0):
     n_batches = len(outputs)
 
     trainer.start_training()
-    for epoch in range(20):
-        for batch_id in tqdm(random.sample(range(n_batches), k=n_batches), desc=f'Epoch {epoch}'):
+    for epoch in trange(20, desc='Optimizing MINE'):
+        for batch_id in random.sample(range(n_batches), k=n_batches):
             labels_batch = labels[batch_id]
             labels_batch += normal_sampler.sample(labels_batch.shape)
             trainer.train_batch(data_batch=outputs[batch_id], labels_batch=labels_batch)
     trainer.finish_training()
-    print(f"MINE mutual information lower-bound: {trainer.get_mutual_info()}")
+    print(f"Mutual Information Neural Estimation (MINE) lower-bound: {trainer.get_mutual_info():.3f}")
     plt.plot(np.arange(len(trainer.mutual_info_history)), trainer.mutual_info_history)
     plt.show()
 
 
 def test_kmeans():
     outputs, labels = synthesize_log_softmax_data(n_samples=20000, n_classes=10, p_argmax=0.99)
-    mutual_info = MutualInfoKMeans(n_bins=20, debug=False)
-    quantized = mutual_info.quantize(outputs)
-    info = MutualInfoKMeans.compute_mutual_info(quantized, labels)
-    print(f"KMeans mutual information estimate: {info}")
+    estimator = MutualInfoKMeans(n_bins=20, debug=False)
+    quantized = estimator.quantize(outputs)
+    estimated = MutualInfoKMeans.compute_mutual_info(quantized, labels)
+    print(f"KMeans Mutual Information estimate: {estimated:.3f}")
+
+
+def test_gcmi():
+    """
+    Test Gaussian-Copula Mutual Information estimator
+    """
+    outputs, labels = synthesize_log_softmax_data(n_samples=20000, n_classes=10, p_argmax=0.99)
+    print(type(labels))
+    estimated = micd(outputs.numpy().T, labels.numpy())
+    print(f"Gaussian-Copula Mutual Information estimate: {estimated:.3f}")
 
 
 if __name__ == '__main__':
     set_seed(26)
+    # expected estimated value: log2(10) ~ 3.322
     test_kmeans()
     test_mine()
+    test_gcmi()

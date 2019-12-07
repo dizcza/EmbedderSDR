@@ -12,7 +12,7 @@ import models.caltech
 import models.cifar
 from loss import *
 from models import *
-from monitor.accuracy import AccuracyArgmax
+from monitor.accuracy import AccuracyArgmax, AccuracyEmbeddingKWTA
 from monitor.monitor import Monitor
 from monitor.mutual_info import *
 from trainer import *
@@ -61,17 +61,18 @@ def train_mask():
 
 
 def train_grad(n_epoch=500, dataset_name="MNIST"):
-    model = EmbedderSDR(last_layer=nn.Sequential(nn.ReLU(inplace=True), nn.Linear(128, 10)), dataset_name=dataset_name)
+    # model = EmbedderSDR(last_layer=nn.Sequential(nn.ReLU(inplace=True), nn.Linear(128, 10)), dataset_name=dataset_name)
+    model = MLP(784, 128, 16, 10)
     optimizer, scheduler = get_optimizer_scheduler(model)
     criterion = nn.CrossEntropyLoss()
     trainer = TrainerGrad(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
-                          scheduler=scheduler)
+                          scheduler=scheduler, mutual_info=MutualInfoGCMI(pca_size=16), env_suffix='GCMI')
     # trainer.restore()
-    trainer.monitor.advanced_monitoring(level=MonitorLevel.SIGNAL_TO_NOISE)
+    # trainer.monitor.advanced_monitoring(level=MonitorLevel.SIGNAL_TO_NOISE)
     trainer.train(n_epoch=n_epoch, mutual_info_layers=2)
 
 
-def train_kwta(n_epoch=500, dataset_name="CIFAR10"):
+def train_kwta(n_epoch=500, dataset_name="MNIST"):
     kwta = KWinnersTakeAllSoft(sparsity=0.3)
     # kwta = SynapticScaling(kwta, synaptic_scale=3)
     model = EmbedderSDR(last_layer=kwta, dataset_name=dataset_name)
@@ -80,6 +81,7 @@ def train_kwta(n_epoch=500, dataset_name="CIFAR10"):
     kwta_scheduler = KWTAScheduler(model=model, step_size=15, gamma_sparsity=0.3, min_sparsity=0.05,
                                    gamma_hardness=2, max_hardness=10)
     trainer = TrainerGradKWTA(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
+                              accuracy_measure=AccuracyEmbeddingKWTA(),
                               scheduler=scheduler, kwta_scheduler=kwta_scheduler, env_suffix='')
     # trainer.restore()
     # trainer.monitor.advanced_monitoring(level=MonitorLevel.SIGNAL_TO_NOISE)
@@ -154,7 +156,8 @@ if __name__ == '__main__':
     set_seed(26)
     # torch.backends.cudnn.benchmark = True
     # train_kwta()
-    dump_activations()
+    # dump_activations()
+    train_grad()
     # test()
     # train_pretrained()
     # train_caltech()

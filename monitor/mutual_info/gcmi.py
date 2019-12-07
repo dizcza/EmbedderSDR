@@ -203,7 +203,7 @@ def micd(x, y):
         mask = y == yval
         x_given_y = x[:, mask]
         entropy_x_given_y += py * entropy_g(x_given_y)
-    return abs(entropy_x - entropy_x_given_y)  # units already applied
+    return entropy_x - entropy_x_given_y  # units already applied
 
 
 class MutualInfoGCMI(MutualInfoPCA):

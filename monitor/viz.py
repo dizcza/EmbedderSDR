@@ -43,7 +43,7 @@ class VisdomMighty(visdom.Visdom):
         win = opts.get('title', str(opts))
         self.line(Y=y, X=x, win=win, opts=opts, update='append' if self.win_exists(win) else None, name=name)
         if name is not None:
-            self.update_window_opts(win=win, opts=dict(legend=self.legends[win]))
+            self.update_window_opts(win=win, opts=dict(legend=self.legends[win], title=win))
 
     def log(self, text: str):
         self.text(f"{time.strftime('%Y-%b-%d %H:%M')} {text}", win='log', append=self.win_exists(win='log'))
