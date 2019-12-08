@@ -1,16 +1,26 @@
-# Credits: Greg Ver Steeg
+"""
+Credits:
+    Shuyang Gao, Greg Ver Steeg and Aram Galstyan
+    http://arxiv.org/abs/1411.2003
+    Efficient Estimation of Mutual Information for Strongly Dependent Variables
+    AISTATS, 2015.
+
+Original implementation:
+    https://github.com/gregversteeg/NPEET
+"""
 
 import warnings
 from math import log
 from typing import List
 
 import numpy as np
-import scipy.spatial as ss
 import sklearn.decomposition
 import torch
 import torch.utils.data
 import torch.utils.data
+from numpy import log
 from scipy.special import digamma
+from sklearn.neighbors import BallTree, KDTree
 
 from monitor.mutual_info._pca_preprocess import MutualInfoPCA
 
@@ -24,7 +34,7 @@ def entropy(x, k=3, base=2):
     x = np.asarray(x)
     n_elements, n_features = x.shape
     x = add_noise(x)
-    tree = ss.cKDTree(x)
+    tree = build_tree(x)
     nn = query_neighbors(tree, x, k)
     const = digamma(n_elements) - digamma(k) + n_features * log(2)
     return (const + n_features * np.log(nn).mean()) / log(base)
@@ -45,7 +55,7 @@ def mi(x, y, z=None, k=3, base=2):
         points.append(z)
     points = np.hstack(points)
     # Find nearest neighbors in joint space, p=inf means max-norm
-    tree = ss.cKDTree(points)
+    tree = build_tree(points)
     dvec = query_neighbors(tree, points, k)
     if z is None:
         a, b, c, d = avgdigamma(x, dvec), avgdigamma(y, dvec), digamma(k), digamma(len(x))
@@ -87,22 +97,24 @@ def add_noise(x, intens=1e-10):
 
 
 def query_neighbors(tree, x, k):
-    return tree.query(x, k=k + 1, p=float('inf'), n_jobs=-1)[0][:, k]
+    return tree.query(x, k=k + 1)[0][:, k]
 
 
 def avgdigamma(points, dvec):
     # This part finds number of neighbors in some radius in the marginal space
     # returns expectation value of <psi(nx)>
-    n_elements = len(points)
-    tree = ss.KDTree(points)
-    avg = 0.
+    tree = build_tree(points)
     dvec = dvec - 1e-15
-    for point, dist in zip(points, dvec):
-        # subtlety, we don't include the boundary point,
-        # but we are implicitly adding 1 to kraskov def bc center point is included
-        num_points = len(tree.query_ball_point(point, dist, p=float('inf')))
-        avg += digamma(num_points) / n_elements
-    return avg
+    # count_neighbors
+    num_points = tree.query_radius(points, dvec, count_only=True)
+    return np.mean(digamma(num_points))
+
+
+def build_tree(points):
+    if points.shape[1] >= 20:
+        # for large dimensions, use BallTree
+        return BallTree(points, metric='chebyshev')
+    return KDTree(points, metric='chebyshev')
 
 
 class MutualInfoNPEET(MutualInfoPCA):
