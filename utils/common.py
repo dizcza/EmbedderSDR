@@ -81,3 +81,7 @@ def load_model_state(dataset_name: str, model_name: str):
     if not model_path.exists():
         return None
     return torch.load(model_path)
+
+
+def small_datasets():
+    return MNIST56, FashionMNIST56, CIFAR10_56, Caltech10, datasets.MNIST, datasets.FashionMNIST, datasets.CIFAR10

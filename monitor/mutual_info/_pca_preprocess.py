@@ -1,5 +1,7 @@
+import pickle
 from abc import ABC
 
+import numpy as np
 import sklearn.decomposition
 import torch
 import torch.utils.data
@@ -7,7 +9,8 @@ import torch.utils.data
 from tqdm import tqdm
 
 from monitor.mutual_info.mutual_info import MutualInfo
-from utils.constants import BATCH_SIZE
+from utils.common import small_datasets
+from utils.constants import BATCH_SIZE, PCA_DIR
 
 
 class MutualInfoPCA(MutualInfo, ABC):
@@ -47,24 +50,48 @@ class MutualInfoPCA(MutualInfo, ABC):
         batch_size = images_batch.shape[0]
         assert batch_size >= self.pca_size, \
             f"Batch size {batch_size} has to be larger than PCA dim {self.pca_size} in order to run partial fit"
-        targets = []
-        pca = sklearn.decomposition.IncrementalPCA(n_components=self.pca_size, copy=False, batch_size=BATCH_SIZE)
-        for images, labels in tqdm(self.eval_batches(), total=len(self.eval_loader),
-                                   desc="MutualInfo: Applying PCA to input data. Stage 1"):
-            if images.shape[0] < self.pca_size:
-                # drop the last batch if it's too small
-                continue
-            images = images.flatten(start_dim=1)
-            pca.partial_fit(images, labels)
-            targets.append(labels)
-        self.quantized['target'] = torch.cat(targets, dim=0)
+
+        if self.eval_loader.dataset.__class__ in small_datasets():
+            pca = self.pca_full()
+        else:
+            pca = self.pca_partial()
 
         inputs = []
-        for images, _ in tqdm(self.eval_batches(), total=len(self.eval_loader),
-                              desc="MutualInfo: Applying PCA to input data. Stage 2"):
+        targets = []
+        for images, labels in tqdm(self.eval_batches(), total=len(self.eval_loader),
+                                   desc="MutualInfo: Applying PCA to input data. Stage 2"):
             images = images.flatten(start_dim=1)
             images_transformed = pca.transform(images)
             images_transformed = torch.from_numpy(images_transformed).type(torch.float32)
             inputs.append(images_transformed)
+            targets.append(labels)
+        self.quantized['target'] = torch.cat(targets, dim=0)
+
         self.quantized['input'] = torch.cat(inputs, dim=0)
         self.prepare_input_finished()
+
+    def pca_full(self):
+        # memory inefficient
+        dataset_name = self.eval_loader.dataset.__class__.__name__
+        pca_path = PCA_DIR.joinpath(dataset_name, f"dim-{self.pca_size}.pkl")
+        if not pca_path.exists():
+            pca_path.parent.mkdir(parents=True, exist_ok=True)
+            pca = sklearn.decomposition.PCA(n_components=self.pca_size, copy=False)
+            images = np.vstack([im_batch.flatten(start_dim=1) for im_batch, _ in iter(self.eval_loader)])
+            pca.fit(images)
+            with open(pca_path, 'wb') as f:
+                pickle.dump(pca, f)
+        with open(pca_path, 'rb') as f:
+            pca = pickle.load(f)
+        return pca
+
+    def pca_partial(self):
+        pca = sklearn.decomposition.IncrementalPCA(n_components=self.pca_size, copy=False, batch_size=BATCH_SIZE)
+        for images, _ in tqdm(self.eval_batches(), total=len(self.eval_loader),
+                              desc="MutualInfo: Applying PCA to input data. Stage 1"):
+            if images.shape[0] < self.pca_size:
+                # drop the last batch if it's too small
+                continue
+            images = images.flatten(start_dim=1)
+            pca.partial_fit(images)
+        return pca
