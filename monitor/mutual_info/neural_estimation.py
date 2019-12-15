@@ -25,8 +25,9 @@ class MutualInfoNeuralEstimationNetwork(nn.Module):
         :param y_size: input/target data shape
         """
         super().__init__()
-        self.fc_x = nn.Linear(x_size, self.hidden_units[0])
-        self.fc_y = nn.Linear(y_size, self.hidden_units[0])
+        self.fc_x = nn.Linear(x_size, self.hidden_units[0], bias=False)
+        self.fc_y = nn.Linear(y_size, self.hidden_units[0], bias=False)
+        self.input_bias = nn.Parameter(torch.zeros(self.hidden_units[0]))
         fc_hidden = []
         for in_features, out_features in zip(self.hidden_units[0:], self.hidden_units[1:]):
             fc_hidden.append(nn.Linear(in_features=in_features, out_features=out_features))
@@ -38,9 +39,9 @@ class MutualInfoNeuralEstimationNetwork(nn.Module):
         """
         :param x: some hidden layer batch activations of shape (batch_size, embedding_size)
         :param y: either input or target data samples of shape (batch_size, input_dimensions or 1)
-        :return: mutual information I(x, y) approximation
+        :return: mutual information I(x, y) lower bound
         """
-        hidden = self.relu(self.fc_x(x) + self.fc_y(y))
+        hidden = self.relu(self.fc_x(x) + self.fc_y(y) + self.input_bias)
         hidden = self.relu(self.fc_hidden(hidden))
         output = self.fc_output(hidden)
         return output
