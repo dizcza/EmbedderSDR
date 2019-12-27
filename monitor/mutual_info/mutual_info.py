@@ -18,6 +18,27 @@ from utils.constants import BATCH_SIZE
 from utils.hooks import LayersOrderHook
 
 
+class AccuracyFromMutualInfo:
+    def __init__(self, n_classes: int, resolution_bins=100):
+        self.n_classes = n_classes
+        self.accuracy_binned = np.linspace(start=1 / n_classes, stop=1, num=resolution_bins, endpoint=False)
+        entropy_correct = self.accuracy_binned * np.log2(1 / self.accuracy_binned)
+        entropy_incorrect = (1 - self.accuracy_binned) * np.log2((n_classes - 1) / (1 - self.accuracy_binned))
+        entropy_class_given_activations = entropy_correct + entropy_incorrect
+        entropy_classes = np.log2(n_classes)
+        self.mutual_info_binned = entropy_classes - entropy_class_given_activations
+
+    def estimate_accuracy(self, mutual_info_bits: float) -> float:
+        """
+        :param mutual_info_bits: mutual information between the hidden layer T and the true class Y
+        :return: estimated layer accuracy
+        """
+        bin_id = np.digitize(mutual_info_bits, bins=self.mutual_info_binned)
+        bin_id = min(bin_id, len(self.accuracy_binned) - 1)
+        accuracy_estimated = self.accuracy_binned[bin_id]
+        return accuracy_estimated
+
+
 class MutualInfo(ABC):
     log2e = math.log2(math.e)
     n_bins_default = 20
@@ -38,6 +59,7 @@ class MutualInfo(ABC):
         self.is_active = False
         self.eval_loader = None
         self.layer_to_name = {}
+        self.accuracy_estimator = None
 
     def __repr__(self):
         return f"{self.__class__.__name__}({self.extra_repr()})"
@@ -99,6 +121,9 @@ class MutualInfo(ABC):
             images = images.flatten(start_dim=1)
             centroids_predicted.append(classifier.predict(images))
         self.quantized['input'] = np.hstack(centroids_predicted)
+
+        n_classes = len(targets.unique(sorted=False))
+        self.accuracy_estimator = AccuracyFromMutualInfo(n_classes=n_classes)
 
     def prepare(self, loader: torch.utils.data.DataLoader, model: nn.Module, monitor_layers_count=5):
         self.eval_loader = loader
@@ -185,3 +210,9 @@ class MutualInfo(ABC):
     @abstractmethod
     def save_mutual_info(self):
         pass
+
+    def estimate_accuracy(self):
+        accuracies = {}
+        for layer_name, (info_x, info_y) in self.information.items():
+            accuracies[layer_name] = self.accuracy_estimator.estimate_accuracy(info_y)
+        return accuracies

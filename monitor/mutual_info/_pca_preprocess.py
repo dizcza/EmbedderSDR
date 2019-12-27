@@ -52,9 +52,11 @@ class MutualInfoPCA(MutualInfo, ABC):
             f"Batch size {batch_size} has to be larger than PCA dim {self.pca_size} in order to run partial fit"
 
         if self.eval_loader.dataset.__class__ in small_datasets():
+            # for small datasets, use PCA on all images at once
             pca = self.pca_full()
         else:
-            pca = self.pca_partial()
+            # otherwise, use incremental (batched) pca
+            pca = self.pca_incremental()
 
         inputs = []
         targets = []
@@ -85,7 +87,7 @@ class MutualInfoPCA(MutualInfo, ABC):
             pca = pickle.load(f)
         return pca
 
-    def pca_partial(self):
+    def pca_incremental(self):
         pca = sklearn.decomposition.IncrementalPCA(n_components=self.pca_size, copy=False, batch_size=BATCH_SIZE)
         for images, _ in tqdm(self.eval_batches(), total=len(self.eval_loader),
                               desc="MutualInfo: Applying PCA to input data. Stage 1"):
