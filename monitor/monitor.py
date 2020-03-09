@@ -163,14 +163,16 @@ class Monitor:
     def register_func(self, *func: Callable):
         self.functions.extend(func)
 
-    def update_distribution(self):
+    def update_weight_histogram(self):
         for name, param_record in self.param_records.items():
             param_data = param_record.param.data.cpu()
             if param_data.numel() == 1:
+                # not used since biases aren't tracked anymore
                 self.viz.line_update(y=param_data.item(), opts=dict(
                     xlabel='Epoch',
                     ylabel='Value',
-                    title=name,
+                    title='Layer biases',
+                    name=name,
                 ))
             else:
                 self.viz.histogram(X=param_data.view(-1), win=name, opts=dict(
@@ -313,7 +315,6 @@ class Monitor:
 
     def epoch_finished(self, model: nn.Module, outputs_full, labels_full):
         self.update_accuracy_epoch(model, outputs_train=outputs_full, labels_train=labels_full)
-        # self.update_distribution()
         self.update_mutual_info()
         for monitored_function in self.functions:
             monitored_function(self.viz)
@@ -329,6 +330,7 @@ class Monitor:
             self.param_records.plot_sign_flips(self.viz)
             self.update_initial_difference()
             self.update_weight_trace_signal_to_noise_ratio()
+            self.update_weight_histogram()
 
     def register_layer(self, layer: nn.Module, prefix: str):
         self.mutual_info.register(layer, name=prefix)
