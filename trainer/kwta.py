@@ -23,10 +23,10 @@ class KWTAScheduler:
                  gamma_hardness=2.0, max_hardness=10):
         self.kwta_layers = tuple(find_layers(model, layer_class=KWinnersTakeAll))
         self.step_size = step_size
-        self.gamma_sparsity = gamma_sparsity
-        self.min_sparsity = min_sparsity
-        self.gamma_hardness = gamma_hardness
-        self.max_hardness = max_hardness
+        self.gamma_sparsity = torch.as_tensor(gamma_sparsity, dtype=torch.float32)
+        self.min_sparsity = torch.as_tensor(min_sparsity, dtype=torch.float32)
+        self.gamma_hardness = torch.as_tensor(gamma_hardness, dtype=torch.float32)
+        self.max_hardness = torch.as_tensor(max_hardness, dtype=torch.float32)
         self.last_epoch_update = -1
 
     def need_update(self, epoch: int):
