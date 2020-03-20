@@ -9,18 +9,6 @@ class Identity(nn.Module):
         return x
 
 
-def find_layers(model: nn.Module, layer_class):
-    for name, layer in find_named_layers(model, layer_class=layer_class):
-        yield layer
-
-
-def find_named_layers(model: nn.Module, layer_class, name_prefix=''):
-    for name, layer in model.named_children():
-        yield from find_named_layers(layer, layer_class, name_prefix=f"{name_prefix}.{name}")
-    if isinstance(model, layer_class):
-        yield name_prefix.lstrip('.'), model
-
-
 def replace_relu(model: nn.Module, new_relu, drop_layers=()):
     """
     :param model: network model

@@ -4,7 +4,7 @@ import warnings
 import torch
 import torch.nn as nn
 
-from monitor.var_online import MeanOnlineBatch
+from mighty.monitor.var_online import MeanOnlineBatch
 from utils.constants import SPARSITY
 from utils.layers import SerializableModule
 

@@ -5,22 +5,26 @@ os.environ['FULL_FORWARD_PASS_SIZE'] = '10000'
 import torch
 import torch.nn as nn
 import torchvision.models
-import torchvision.transforms
+from torchvision import transforms
+from torchvision.datasets import MNIST, CIFAR10, FashionMNIST, Caltech256
+
 from PIL import Image
 
 import models.caltech
 import models.cifar
-from loss import *
+from mighty.loss import *
 from models import *
-from monitor.accuracy import AccuracyArgmax, AccuracyEmbeddingKWTA
-from monitor.monitor import Monitor
-from monitor.mutual_info import *
-from trainer import *
-from utils.common import set_seed
+from mighty.monitor.accuracy import AccuracyArgmax
+from monitor.accuracy import AccuracyEmbeddingKWTA
+from mighty.monitor.monitor import Monitor
+from mighty.monitor.mutual_info import *
+from mighty.trainer import *
+from trainer.kwta import TrainerGradKWTA, KWTAScheduler
+from mighty.utils.common import set_seed
 from utils.constants import IMAGES_DIR
-from utils.domain import MonitorLevel
-from utils.normalize import NormalizeInverse
-from utils.hooks import DumpActivationsHook
+from mighty.utils.domain import MonitorLevel
+from mighty.utils.data import NormalizeInverse, DataLoader
+from mighty.utils.hooks import DumpActivationsHook
 
 
 def get_optimizer_scheduler(model: nn.Module):
@@ -39,16 +43,28 @@ def train_mask():
     model.eval()
     for param in model.parameters():
         param.requires_grad_(False)
-    normalize = torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-    transform = torchvision.transforms.Compose([torchvision.transforms.Resize(size=(224, 224)),
-                                                torchvision.transforms.ToTensor(), normalize])
+    normalize = transforms.Normalize(
+        # ImageNet normalize
+        mean=[0.485, 0.456, 0.406],
+        std=[0.229, 0.224, 0.225]
+    )
+    transform = transforms.Compose([transforms.Resize(size=(224, 224)),
+                                    transforms.ToTensor(), normalize])
     accuracy_measure = AccuracyArgmax()
-    monitor = Monitor(test_loader=None, accuracy_measure=accuracy_measure, mutual_info=MutualInfoKMeans())
+    monitor = Monitor(
+        accuracy_measure=accuracy_measure,
+        mutual_info=MutualInfoKMeans(),
+        normalize_inverse=NormalizeInverse(mean=normalize.mean,
+                                           std=normalize.std),
+    )
     monitor.open(env_name='mask')
-    monitor.normalize_inverse = NormalizeInverse(mean=normalize.mean, std=normalize.std)
     image = Image.open(IMAGES_DIR / "flute.jpg")
     image = transform(image)
-    mask_trainer = MaskTrainer(accuracy_measure=accuracy_measure, image_shape=image.shape, show_progress=True)
+    mask_trainer = MaskTrainer(
+        accuracy_measure=accuracy_measure,
+        image_shape=image.shape,
+        show_progress=True
+    )
     monitor.log(repr(mask_trainer))
     if torch.cuda.is_available():
         model = model.cuda()
@@ -57,48 +73,53 @@ def train_mask():
     proba = accuracy_measure.predict_proba(outputs)
     proba_max, label_true = proba[0].max(dim=0)
     print(f"True label: {label_true} (confidence {proba_max: .5f})")
-    monitor.plot_mask(model=model, mask_trainer=mask_trainer, image=image, label=label_true)
+    monitor.plot_mask(model=model, mask_trainer=mask_trainer, image=image,
+                      label=label_true)
 
 
-def train_grad(n_epoch=500, dataset_name="MNIST"):
-    # model = EmbedderSDR(last_layer=nn.Sequential(nn.ReLU(inplace=True), nn.Linear(128, 10)), dataset_name=dataset_name)
-    model = MLP(784, 128, 16, 10)
+def train_grad(n_epoch=10, dataset_cls=MNIST):
+    model = MLP(784, 128, 10)
     optimizer, scheduler = get_optimizer_scheduler(model)
     criterion = nn.CrossEntropyLoss()
-    trainer = TrainerGrad(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
-                          scheduler=scheduler, mutual_info=MutualInfoGCMI(pca_size=16), env_suffix='GCMI')
-    # trainer.restore()
-    # trainer.monitor.advanced_monitoring(level=MonitorLevel.SIGNAL_TO_NOISE)
+    normalize = transforms.Normalize(mean=(0.1307,), std=(0.3081,))
+    data_loader = DataLoader(dataset_cls, normalize=normalize)
+    trainer = TrainerGrad(model, criterion=criterion, data_loader=data_loader,
+                          optimizer=optimizer, scheduler=scheduler)
+    # trainer.restore()  # uncomment to restore the saved state
+    trainer.monitor.advanced_monitoring(level=MonitorLevel.SIGNAL_TO_NOISE)
     trainer.train(n_epoch=n_epoch, mutual_info_layers=2)
 
 
-def train_kwta(n_epoch=500, dataset_name="MNIST"):
-    kwta = KWinnersTakeAllSoft(sparsity=0.3)
-    # kwta = SynapticScaling(kwta, synaptic_scale=3)
-    model = EmbedderSDR(last_layer=kwta, dataset_name=dataset_name)
-    optimizer, scheduler = get_optimizer_scheduler(model)
-    criterion = TripletLoss(metric='cosine')
-    kwta_scheduler = KWTAScheduler(model=model, step_size=15, gamma_sparsity=0.3, min_sparsity=0.05,
-                                   gamma_hardness=2, max_hardness=10)
-    trainer = TrainerGradKWTA(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
-                              accuracy_measure=AccuracyEmbeddingKWTA(),
-                              scheduler=scheduler, kwta_scheduler=kwta_scheduler, env_suffix='')
-    # trainer.restore()
-    # trainer.monitor.advanced_monitoring(level=MonitorLevel.SIGNAL_TO_NOISE)
-    trainer.train(n_epoch=n_epoch, mutual_info_layers=0)
-
-
-def test(n_epoch=500, dataset_name="CIFAR10"):
-    model = models.cifar.CIFAR10(pretrained=True)
+def test(model, n_epoch=500, dataset_cls=MNIST):
     model.eval()
     for param in model.parameters():
         param.requires_grad_(False)
     criterion = nn.CrossEntropyLoss()
-    trainer = Test(model=model, criterion=criterion, dataset_name=dataset_name)
-    trainer.train(n_epoch=n_epoch, mutual_info_layers=1, adversarial=True, mask_explain=True)
+    normalize = transforms.Normalize(mean=(0.1307,), std=(0.3081,))
+    data_loader = DataLoader(dataset_cls, normalize=normalize)
+    trainer = Test(model=model, criterion=criterion, data_loader=data_loader)
+    trainer.train(n_epoch=n_epoch, adversarial=True, mask_explain=True)
 
 
-def train_pretrained(n_epoch=500, dataset_name="CIFAR10"):
+def train_kwta(n_epoch=500, dataset_cls=MNIST):
+    kwta = KWinnersTakeAllSoft(sparsity=0.15)
+    # kwta = SynapticScaling(kwta, synaptic_scale=3)
+    model = MLPKwta(784, 128, kwta)
+    optimizer, scheduler = get_optimizer_scheduler(model)
+    criterion = TripletLoss(metric='cosine')
+    normalize = transforms.Normalize(mean=(0.1307,), std=(0.3081,))
+    data_loader = DataLoader(dataset_cls, normalize=normalize)
+    kwta_scheduler = KWTAScheduler(model=model, step_size=15, gamma_sparsity=0.3, min_sparsity=0.05,
+                                   gamma_hardness=2, max_hardness=10)
+    trainer = TrainerGradKWTA(model=model, criterion=criterion, data_loader=data_loader, optimizer=optimizer,
+                              accuracy_measure=AccuracyEmbeddingKWTA(),
+                              scheduler=scheduler, kwta_scheduler=kwta_scheduler, env_suffix='')
+    # trainer.restore()
+    trainer.monitor.advanced_monitoring(level=MonitorLevel.SIGNAL_TO_NOISE)
+    trainer.train(n_epoch=n_epoch, mutual_info_layers=1)
+
+
+def train_pretrained(n_epoch=500, dataset_cls=CIFAR10):
     model = models.cifar.CIFAR10(pretrained=True)
     for param in model.parameters():
         param.requires_grad_(False)
@@ -106,39 +127,45 @@ def train_pretrained(n_epoch=500, dataset_name="CIFAR10"):
     model.classifier = nn.Sequential(nn.Linear(1024, 128, bias=False), kwta)
     optimizer, scheduler = get_optimizer_scheduler(model)
     criterion = ContrastiveLossRandom(metric='cosine')
+    normalize = transforms.Normalize(mean=(0.4914, 0.4822, 0.4465), std=(0.247, 0.243, 0.261))
+    data_loader = DataLoader(dataset_cls, normalize=normalize)
     kwta_scheduler = KWTAScheduler(model=model, step_size=15, gamma_sparsity=0.3, min_sparsity=0.05,
                                    gamma_hardness=2, max_hardness=10)
-    trainer = TrainerGradKWTA(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
+    trainer = TrainerGradKWTA(model=model, criterion=criterion, data_loader=data_loader, optimizer=optimizer,
                               scheduler=scheduler, kwta_scheduler=kwta_scheduler)
     trainer.train(n_epoch=n_epoch, mutual_info_layers=1, mask_explain=False)
 
 
-def train_caltech(n_epoch=500, dataset_name="Caltech256"):
+def train_caltech(n_epoch=500, dataset_cls=Caltech256):
+    dataset_name = dataset_cls.__name__
     models.caltech.set_out_features(key='softmax', value=int(dataset_name.lstrip("Caltech")))
     kwta = None
     kwta = KWinnersTakeAllSoft(sparsity=0.3)
     model = models.caltech.resnet18(kwta=kwta)
+    data_loader = DataLoader(dataset_cls, normalize=None)
     if kwta:
         criterion = ContrastiveLossRandom(metric='cosine')
         optimizer, scheduler = get_optimizer_scheduler(model)
         kwta_scheduler = KWTAScheduler(model=model, step_size=15, gamma_sparsity=0.3, min_sparsity=0.05,
                                        gamma_hardness=2, max_hardness=10)
-        trainer = TrainerGradKWTA(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
+        trainer = TrainerGradKWTA(model=model, criterion=criterion, data_loader=data_loader, optimizer=optimizer,
                                   scheduler=scheduler, kwta_scheduler=kwta_scheduler)
     else:
         criterion = nn.CrossEntropyLoss()
         optimizer, scheduler = get_optimizer_scheduler(model)
-        trainer = TrainerGrad(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
+        trainer = TrainerGrad(model=model, criterion=criterion, data_loader=data_loader, optimizer=optimizer,
                               scheduler=scheduler)
     trainer.train(n_epoch=n_epoch, mutual_info_layers=0, mask_explain=False)
 
 
-def dump_activations(n_epoch=2, dataset_name="MNIST"):
+def dump_activations(n_epoch=2, dataset_cls=MNIST):
     model = MLP(784, 128, 32, 10)
     optimizer, scheduler = get_optimizer_scheduler(model)
     criterion = nn.CrossEntropyLoss()
+    normalize = transforms.Normalize(mean=(0.1307,), std=(0.3081,))
+    data_loader = DataLoader(dataset_cls, normalize=normalize)
     trainer = TrainerGrad(model=model, criterion=criterion,
-                          dataset_name=dataset_name, optimizer=optimizer,
+                          data_loader=data_loader, optimizer=optimizer,
                           scheduler=scheduler)
     trainer.train(n_epoch=n_epoch, mutual_info_layers=0)
 
@@ -155,9 +182,9 @@ def dump_activations(n_epoch=2, dataset_name="MNIST"):
 if __name__ == '__main__':
     set_seed(26)
     # torch.backends.cudnn.benchmark = True
-    # train_kwta()
+    train_kwta()
     # dump_activations()
-    train_grad()
+    # train_grad()
     # test()
     # train_pretrained()
     # train_caltech()

@@ -5,12 +5,12 @@ import torch.nn as nn
 import torch.utils.data
 from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
 
-from loss import LossFixedPattern
 from models.kwta import KWinnersTakeAllSoft, KWinnersTakeAll, SynapticScaling
-from trainer.gradient import TrainerGrad
-from trainer.mask import MaskTrainerIndex
-from utils.layers import find_layers, find_named_layers
-from utils.prepare import prepare_eval
+from mighty.trainer.gradient import TrainerGrad
+from mighty.trainer.mask import MaskTrainerIndex
+from mighty.utils.common import find_layers, find_named_layers
+from mighty.utils.prepare import prepare_eval
+from mighty.utils.data import DataLoader
 from monitor.accuracy import AccuracyEmbeddingKWTA
 
 
@@ -64,7 +64,7 @@ class TrainerGradKWTA(TrainerGrad):
 
     watch_modules = TrainerGrad.watch_modules + (KWinnersTakeAll, SynapticScaling)
 
-    def __init__(self, model: nn.Module, criterion: nn.Module, dataset_name: str,
+    def __init__(self, model: nn.Module, criterion: nn.Module, data_loader: DataLoader,
                  optimizer: torch.optim.Optimizer,
                  scheduler: Union[_LRScheduler, ReduceLROnPlateau, None] = None,
                  kwta_scheduler: Optional[KWTAScheduler] = None,
@@ -77,15 +77,11 @@ class TrainerGradKWTA(TrainerGrad):
         :param scheduler: learning rate scheduler
         :param kwta_scheduler: kWTA sparsity and hardness scheduler
         """
-        super().__init__(model=model, criterion=criterion, dataset_name=dataset_name, optimizer=optimizer,
+        super().__init__(model=model, criterion=criterion, data_loader=data_loader, optimizer=optimizer,
                          scheduler=scheduler, **kwargs)
         if not any(find_layers(self.model, layer_class=KWinnersTakeAll)):
             raise ValueError("When a model has no kWTA layer, use TrainerGrad")
         self.kwta_scheduler = kwta_scheduler
-        if self.kwta_scheduler is not None and isinstance(self.criterion, LossFixedPattern):
-            warnings.warn(f"{self.kwta_scheduler.__class__.__name__} is not recommended to use with "
-                          f"{self.criterion.__class__.__name__}. Make sure kWTA sparsity does not "
-                          f"change during the training.")
         self.mask_trainer_kwta = MaskTrainerIndex(image_shape=self.mask_trainer.image_shape)
         self._update_accuracy_state()
 
@@ -125,20 +121,6 @@ class TrainerGradKWTA(TrainerGrad):
                 ))
 
             self.monitor.register_func(sparsity, hardness)
-
-        if isinstance(self.criterion, LossFixedPattern):
-            def show_fixed_patterns(viz):
-                labels = sorted(self.criterion.patterns.keys())
-                patterns = [self.criterion.patterns[label] for label in labels]
-                patterns = torch.stack(patterns, dim=0).cpu()
-                title = 'Fixed target patterns'
-                viz.heatmap(patterns, win=title, opts=dict(
-                    xlabel='Embedding dimension',
-                    ylabel='Label',
-                    title=title,
-                ))
-
-            self.monitor.register_func(show_fixed_patterns)
 
     def log_trainer(self):
         super().log_trainer()
