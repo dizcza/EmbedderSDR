@@ -5,13 +5,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.utils.data
+from mighty.monitor.mutual_info.gcmi import micd
+from mighty.monitor.mutual_info.kmeans import MutualInfoKMeans
+from mighty.monitor.mutual_info.neural_estimation import MINE_Net, MINE_Trainer
+from mighty.utils.common import set_seed
+from mighty.utils.constants import BATCH_SIZE
 from tqdm import trange
-
-from monitor.mutual_info.kmeans import MutualInfoKMeans
-from monitor.mutual_info.neural_estimation import MutualInfoNeuralEstimationNetwork, MutualInfoNeuralEstimationTrainer
-from monitor.mutual_info.gcmi import micd
-from utils.common import set_seed
-from utils.constants import BATCH_SIZE
 
 
 def synthesize_log_softmax_data(n_samples=50000, n_classes=10, p_argmax=0.95, onehot=False):
@@ -56,8 +55,7 @@ def test_mine(var=0):
     normal_sampler = torch.distributions.normal.Normal(loc=0, scale=math.sqrt(var))
     labels = labels.type(torch.float32)
     # outputs = (outputs - outputs.mean(dim=0)) / outputs.std(dim=0)
-    trainer = MutualInfoNeuralEstimationTrainer(
-        MutualInfoNeuralEstimationNetwork(x_size=outputs.shape[1], y_size=labels.shape[1]))
+    trainer = MINE_Trainer(MINE_Net(x_size=outputs.shape[1], y_size=labels.shape[1]))
 
     outputs = outputs.split(BATCH_SIZE)
     labels = labels.split(BATCH_SIZE)

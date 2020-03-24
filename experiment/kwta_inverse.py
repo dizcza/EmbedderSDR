@@ -3,16 +3,17 @@ from collections import defaultdict
 import torch
 import torch.utils.data
 import torchvision
-import torchvision.transforms.functional
+import torchvision.transforms.functional as F
 from PIL import Image
+from mighty.monitor.var_online import MeanOnline
+from mighty.monitor.viz import VisdomMighty
+from mighty.utils.data import DataLoader, get_normalize_inverse
+from torchvision import transforms
+from torchvision.datasets import MNIST
 from tqdm import tqdm
 
 from models.kwta import KWinnersTakeAllFunction
-from monitor.var_online import MeanOnline
-from monitor.viz import VisdomMighty
 from utils.algebra import factors_root
-from utils.common import get_data_loader
-from utils.normalize import get_normalize_inverse
 
 
 def torch_to_matplotlib(image):
@@ -28,8 +29,9 @@ def undo_normalization(images_normalized, normalize_inverse):
     return tensor
 
 
-def kwta_inverse(embedding_dim=10000, sparsity=0.05, dataset="MNIST"):
-    loader = get_data_loader(dataset=dataset, batch_size=16)
+def kwta_inverse(embedding_dim=10000, sparsity=0.05, dataset_cls=MNIST):
+    normalize = transforms.Normalize(mean=(0.1307,), std=(0.3081,))
+    loader = DataLoader(dataset_cls, normalize=normalize)
     normalize_inverse = get_normalize_inverse(loader.dataset.transform)
     images, labels = next(iter(loader))
     batch_size, channels, height, width = images.shape
@@ -77,16 +79,18 @@ def calc_overlap(vec1, vec2):
     return similarity
 
 
-def kwta_translation_similarity(embedding_dim=10000, sparsity=0.05, translate=(1, 1), dataset="MNIST"):
-    loader = get_data_loader(dataset=dataset, batch_size=256)
+def kwta_translation_similarity(embedding_dim=10000, sparsity=0.05,
+                                translate=(1, 1), dataset_cls=MNIST):
+    normalize = transforms.Normalize(mean=(0.1307,), std=(0.3081,))
+    loader = DataLoader(dataset_cls, normalize=normalize)
     images, labels = next(iter(loader))
     images = (images > 0).type(torch.float32)
 
     images_translated = []
     for im in images:
-        im_pil = torchvision.transforms.functional.to_pil_image(im)
-        im_translated = torchvision.transforms.functional.affine(im_pil, angle=0, translate=translate, scale=1, shear=0)
-        im_translated = torchvision.transforms.functional.to_tensor(im_translated)
+        im_pil = F.to_pil_image(im)
+        im_translated = F.affine(im_pil, angle=0, translate=translate, scale=1, shear=0)
+        im_translated = F.to_tensor(im_translated)
         images_translated.append(im_translated)
     images_translated = torch.stack(images_translated, dim=0)
     assert images_translated.unique(sorted=True).tolist() == [0, 1]
@@ -111,13 +115,15 @@ def kwta_translation_similarity(embedding_dim=10000, sparsity=0.05, translate=(1
     print(f"random-kWTA ORIG vs TRANSLATED similarity: {calc_overlap(kwta_orig, kwta_translated):.3f}")
 
 
-def surfplot(dataset="MNIST"):
-    loader = get_data_loader(dataset=dataset, batch_size=32)
+def surfplot(dataset_cls=MNIST):
+    normalize = transforms.Normalize(mean=(0.1307,), std=(0.3081,))
+    loader = DataLoader(dataset_cls, normalize=normalize)
     logdim = torch.arange(8, 14)
     embedding_dimensions = torch.pow(2, logdim)
     sparsities = [0.001, 0.01, 0.05, 0.1, 0.3, 0.5, 0.75]
     overlap_running_mean = defaultdict(lambda: defaultdict(MeanOnline))
-    for images, labels in tqdm(loader, desc=f"kWTA inverse overlap surfplot ({dataset})"):
+    for images, labels in tqdm(loader, desc=f"kWTA inverse overlap surfplot "
+                                            f"({dataset_cls.__name__})"):
         if torch.cuda.is_available():
             images = images.cuda()
         images_binary = (images > 0).type(torch.float32).flatten(start_dim=2)
@@ -138,7 +144,7 @@ def surfplot(dataset="MNIST"):
 
     viz = VisdomMighty(env="kWTA inverse")
     opts = dict(
-        title=f"kWTA inverse overlap: {dataset}",
+        title=f"kWTA inverse overlap: {dataset_cls.__name__}",
         ytickvals=list(range(len(embedding_dimensions))),
         yticklabels=[f'2^{power}' for power in logdim],
         ylabel='embedding_dim',
@@ -146,8 +152,8 @@ def surfplot(dataset="MNIST"):
         xticklabels=list(map(str, sparsities)),
         xlabel='sparsity',
     )
-    viz.contour(X=overlap, win=f'overlap contour: {dataset}', opts=opts)
-    viz.surf(X=overlap, win=f'overlap surf: {dataset}', opts=opts)
+    viz.contour(X=overlap, win=f'overlap contour: {dataset_cls.__name__}', opts=opts)
+    viz.surf(X=overlap, win=f'overlap surf: {dataset_cls.__name__}', opts=opts)
 
 
 if __name__ == '__main__':
