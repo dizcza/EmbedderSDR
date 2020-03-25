@@ -19,7 +19,7 @@ from monitor.accuracy import AccuracyEmbeddingKWTA
 from mighty.monitor.monitor import Monitor
 from mighty.monitor.mutual_info import *
 from mighty.trainer import *
-from trainer.kwta import TrainerGradKWTA, KWTAScheduler
+from trainer import TrainerGradKWTA, KWTAScheduler, TrainerAutoenc
 from mighty.utils.common import set_seed
 from utils.constants import IMAGES_DIR
 from mighty.utils.domain import MonitorLevel
@@ -88,6 +88,26 @@ def train_grad(n_epoch=10, dataset_cls=MNIST):
     # trainer.restore()  # uncomment to restore the saved state
     trainer.monitor.advanced_monitoring(level=MonitorLevel.SIGNAL_TO_NOISE)
     trainer.train(n_epoch=n_epoch, mutual_info_layers=2)
+
+
+def train_autoenc(n_epoch=35, dataset_cls=MNIST):
+    model = AutoEncoderLinear(input_dim=784, encoding_dim=256, sparsity=0.15)
+    optimizer, scheduler = get_optimizer_scheduler(model)
+    # normalize = transforms.Normalize(mean=(0.1307,), std=(0.3081,))
+    data_loader = DataLoader(dataset_cls, normalize=None)
+    kwta_scheduler = KWTAScheduler(model=model, step_size=10,
+                                   gamma_sparsity=0.3, min_sparsity=0.05,
+                                   gamma_hardness=2, max_hardness=10)
+    trainer = TrainerAutoenc(model,
+                             criterion=nn.BCEWithLogitsLoss(),
+                             data_loader=data_loader,
+                             optimizer=optimizer,
+                             scheduler=scheduler,
+                             kwta_scheduler=kwta_scheduler,
+                             accuracy_measure=AccuracyEmbeddingKWTA(metric='l2'))
+    # trainer.restore()  # uncomment to restore the saved state
+    # trainer.monitor.advanced_monitoring(level=MonitorLevel.SIGNAL_TO_NOISE)
+    trainer.train(n_epoch=n_epoch, mutual_info_layers=0)
 
 
 def test(model, n_epoch=500, dataset_cls=MNIST):
@@ -182,7 +202,8 @@ def dump_activations(n_epoch=2, dataset_cls=MNIST):
 if __name__ == '__main__':
     set_seed(26)
     # torch.backends.cudnn.benchmark = True
-    train_kwta()
+    # train_kwta()
+    train_autoenc()
     # dump_activations()
     # train_grad()
     # test()

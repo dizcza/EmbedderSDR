@@ -1,6 +1,6 @@
 # Embedder SDR
 
-EmbedderSDR is a family of neural networks that transform input images into binary Sparse Distributed Representation ([SDR](https://discourse.numenta.org/t/sparse-distributed-representations/2150)).
+EmbedderSDR is a family of neural network encoders that transform input images into binary Sparse Distributed Representation ([SDR](https://discourse.numenta.org/t/sparse-distributed-representations/2150)).
 
 The goal of this project is gradient-free optimization by sparse vectors association in unsupervised fashion (refer to [Willshaw's model, 1969](https://redwood.berkeley.edu/wp-content/uploads/2018/08/willshaw1969.pdf)). While gradient-free optimization is not achieved yet, here I demonstrate how to construct meaningful (feature preserved, distributed) binary sparse vectors in deep learning with TripletLoss.
 
