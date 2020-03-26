@@ -3,7 +3,7 @@ import torch.nn as nn
 from .kwta import KWinnersTakeAll
 
 
-class MLPKwta(nn.Module):
+class MLP_kWTA(nn.Module):
     """
     Creates sequential fully-connected layers FC_1->FC_2->...->FC_N.
 

@@ -4,7 +4,7 @@ import warnings
 import torch
 import torch.nn as nn
 
-from mighty.monitor.var_online import MeanOnlineBatch
+from mighty.monitor.var_online import MeanOnlineVector
 from utils.constants import SPARSITY
 from utils.layers import SerializableModule
 
@@ -108,19 +108,19 @@ class SynapticScaling(SerializableModule):
         super().__init__()
         self.kwta = kwta_layer
         self.register_buffer("synaptic_scale", torch.tensor(synaptic_scale, dtype=torch.float32))
-        self.frequency = MeanOnlineBatch()
+        self.firing_rate = MeanOnlineVector()
 
     @property
     def sparsity(self):
         return self.kwta.sparsity
 
     def forward(self, x):
-        frequency = self.frequency.get_mean()
+        frequency = self.firing_rate.get_mean()
         if frequency is not None:
             scale = torch.exp(-self.synaptic_scale * frequency)
             x = x * scale
         x = self.kwta(x)
-        self.frequency.update(x.detach())
+        self.firing_rate.update(x.detach())
         return x
 
     def extra_repr(self):

@@ -124,7 +124,7 @@ def test(model, n_epoch=500, dataset_cls=MNIST):
 def train_kwta(n_epoch=500, dataset_cls=MNIST):
     kwta = KWinnersTakeAllSoft(sparsity=0.15)
     # kwta = SynapticScaling(kwta, synaptic_scale=3)
-    model = MLPKwta(784, 128, kwta)
+    model = MLP_kWTA(784, 128, kwta)
     optimizer, scheduler = get_optimizer_scheduler(model)
     criterion = TripletLoss(metric='cosine')
     normalize = transforms.Normalize(mean=(0.1307,), std=(0.3081,))
@@ -132,7 +132,6 @@ def train_kwta(n_epoch=500, dataset_cls=MNIST):
     kwta_scheduler = KWTAScheduler(model=model, step_size=15, gamma_sparsity=0.3, min_sparsity=0.05,
                                    gamma_hardness=2, max_hardness=10)
     trainer = TrainerGradKWTA(model=model, criterion=criterion, data_loader=data_loader, optimizer=optimizer,
-                              accuracy_measure=AccuracyEmbeddingKWTA(),
                               scheduler=scheduler, kwta_scheduler=kwta_scheduler, env_suffix='')
     # trainer.restore()
     trainer.monitor.advanced_monitoring(level=MonitorLevel.SIGNAL_TO_NOISE)
@@ -202,8 +201,8 @@ def dump_activations(n_epoch=2, dataset_cls=MNIST):
 if __name__ == '__main__':
     set_seed(26)
     # torch.backends.cudnn.benchmark = True
-    # train_kwta()
-    train_autoenc()
+    train_kwta()
+    # train_autoenc()
     # dump_activations()
     # train_grad()
     # test()

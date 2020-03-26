@@ -3,15 +3,18 @@ from typing import Union, Optional
 
 import torch.nn as nn
 import torch.utils.data
-from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
-
-from models.kwta import KWinnersTakeAllSoft, KWinnersTakeAll, SynapticScaling
+from mighty.monitor.var_online import MeanOnline, MeanOnlineVector
 from mighty.trainer.gradient import TrainerGrad
 from mighty.trainer.mask import MaskTrainerIndex
 from mighty.utils.common import find_layers, find_named_layers
-from mighty.utils.prepare import prepare_eval
 from mighty.utils.data import DataLoader
+from mighty.utils.prepare import prepare_eval
+from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
+from mighty.utils.data import get_normalize_inverse
+
+from models.kwta import KWinnersTakeAllSoft, KWinnersTakeAll, SynapticScaling
 from monitor.accuracy import AccuracyEmbeddingKWTA
+from monitor.monitor import MonitorKWTA
 
 
 class KWTAScheduler:
@@ -78,60 +81,108 @@ class TrainerGradKWTA(TrainerGrad):
         :param kwta_scheduler: kWTA sparsity and hardness scheduler
         """
         super().__init__(model=model, criterion=criterion, data_loader=data_loader, optimizer=optimizer,
-                         scheduler=scheduler, **kwargs)
-        if not any(find_layers(self.model, layer_class=KWinnersTakeAll)):
+                         scheduler=scheduler, accuracy_measure=AccuracyEmbeddingKWTA(), **kwargs)
+        n_kwta_layers = len(find_layers(self.model, layer_class=KWinnersTakeAll))
+        if n_kwta_layers == 0:
             raise ValueError("When a model has no kWTA layer, use TrainerGrad")
+        elif n_kwta_layers > 1:
+            raise ValueError("Only 1 kWTA layer is accepted per model.")
         self.kwta_scheduler = kwta_scheduler
         self.mask_trainer_kwta = MaskTrainerIndex(image_shape=self.mask_trainer.image_shape)
         self._update_accuracy_state()
 
+        self.sparsity_online = MeanOnline()
+        self.firing_rate_online = MeanOnlineVector()
+
+    def _init_monitor(self, mutual_info):
+        normalize_inverse = get_normalize_inverse(self.data_loader.normalize)
+        monitor = MonitorKWTA(
+            accuracy_measure=self.accuracy_measure,
+            mutual_info=mutual_info,
+            normalize_inverse=normalize_inverse
+        )
+        return monitor
+
     def monitor_functions(self):
         super().monitor_functions()
-        kwta_named_layers = tuple(find_named_layers(self.model, layer_class=KWinnersTakeAll))
 
-        if self.kwta_scheduler is not None:
-            kwta_named_layers_soft = tuple(find_named_layers(self.model, layer_class=KWinnersTakeAllSoft))
+        def kwta_centroids(viz):
+            class_centroids = self.accuracy_measure.centroids
+            win = "kWTA class centroids heatmap"
+            opts = dict(
+                title=f"{win}. Epoch {self.timer.epoch}",
+                xlabel='Embedding dimension',
+                ylabel='Label',
+                rownames=[str(i) for i in range(class_centroids.shape[0])],
+            )
+            if class_centroids.shape[0] <= self.monitor.n_classes_format_ytickstep_1:
+                opts.update(ytickstep=1)
+            viz.heatmap(class_centroids, win=win, opts=opts)
 
-            def sparsity(viz):
-                layers_sparsity = []
-                names = []
-                for name, layer in kwta_named_layers:
-                    layers_sparsity.append(layer.sparsity)
-                    names.append(name)
-                viz.line_update(y=layers_sparsity, opts=dict(
-                    xlabel='Epoch',
-                    ylabel='sparsity',
-                    title='KWinnersTakeAll.sparsity',
-                    legend=names,
-                    ytype='log',
-                ))
+        self.monitor.register_func(kwta_centroids)
 
-            def hardness(viz):
-                layers_hardness = []
-                names = []
-                for name, layer in kwta_named_layers_soft:
-                    layers_hardness.append(layer.hardness)
-                    names.append(name)
-                viz.line_update(y=layers_hardness, opts=dict(
-                    xlabel='Epoch',
-                    ylabel='hardness',
-                    title='KWinnersTakeAllSoft.hardness',
-                    legend=names,
-                    ytype='log',
-                ))
+        if self.kwta_scheduler is None:
+            return
 
-            self.monitor.register_func(sparsity, hardness)
+        kwta_named_layers = tuple(find_named_layers(
+            self.model, layer_class=KWinnersTakeAll))
+        kwta_named_layers_soft = tuple(find_named_layers(
+            self.model, layer_class=KWinnersTakeAllSoft))
+
+        def sparsity(viz):
+            layers_sparsity = []
+            names = []
+            for name, layer in kwta_named_layers:
+                layers_sparsity.append(layer.sparsity)
+                names.append(name)
+            viz.line_update(y=layers_sparsity, opts=dict(
+                xlabel='Epoch',
+                ylabel='sparsity',
+                title='KWinnersTakeAll.sparsity',
+                legend=names,
+                ytype='log',
+            ))
+
+        def hardness(viz):
+            layers_hardness = []
+            names = []
+            for name, layer in kwta_named_layers_soft:
+                layers_hardness.append(layer.hardness)
+                names.append(name)
+            viz.line_update(y=layers_hardness, opts=dict(
+                xlabel='Epoch',
+                ylabel='hardness',
+                title='KWinnersTakeAllSoft.hardness',
+                legend=names,
+                ytype='log',
+            ))
+
+        self.monitor.register_func(sparsity)
+        self.monitor.register_func(hardness)
 
     def log_trainer(self):
         super().log_trainer()
         self.monitor.log(f"KWTA scheduler: {self.kwta_scheduler}")
 
-    def _epoch_finished(self, epoch, outputs, labels):
-        loss = super()._epoch_finished(epoch, outputs, labels)
+    def _on_forward_pass_batch(self, input, output, labels):
+        super()._on_forward_pass_batch(input, output, labels)
+        sparsity = output.norm(p=1, dim=1).mean() / output.shape[1]
+        self.sparsity_online.update(sparsity)
+        self.firing_rate_online.update(output)
+
+    def _epoch_finished(self, epoch, loss):
+        super()._epoch_finished(epoch, loss)
         if self.kwta_scheduler is not None:
             self.kwta_scheduler.step(epoch=epoch)
         self._update_accuracy_state()
-        return loss
+        self._epoch_finished_monitor()
+
+    def _epoch_finished_monitor(self):
+        self.monitor.update_sparsity(self.sparsity_online.get_mean(),
+                                     mode='train')
+        self.monitor.update_firing_rate(self.firing_rate_online.get_mean())
+        self.sparsity_online.reset()
+        self.firing_rate_online.reset()
 
     def _update_accuracy_state(self):
         if not isinstance(self.accuracy_measure, AccuracyEmbeddingKWTA):
@@ -141,6 +192,7 @@ class TrainerGradKWTA(TrainerGrad):
             sparsities.add(kwta_layer.sparsity)
         sparsities = sorted(sparsities)
         if len(sparsities) > 1:
+            # irrelevant now
             warnings.warn(f"Found {len(sparsities)} layers with different sparsities: {sparsities}. "
                           f"Chose the lowest one for {self.accuracy_measure.__class__.__name__}.")
         # finally, update accuracy_measure sparsity here

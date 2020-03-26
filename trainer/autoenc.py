@@ -2,15 +2,15 @@ import warnings
 
 import torch
 import torch.utils.data
-from mighty.monitor.accuracy import how_many_samples_take
 from mighty.monitor.mutual_info import MutualInfoStub
 from mighty.monitor.var_online import MeanOnline
-from trainer.kwta import TrainerGradKWTA
 from mighty.utils.common import find_named_layers
+from mighty.utils.common import how_many_samples_take
 from mighty.utils.data import get_normalize_inverse
 from tqdm import tqdm
 
 from monitor.monitor import MonitorAutoenc
+from trainer.kwta import TrainerGradKWTA
 
 
 class TrainerAutoenc(TrainerGradKWTA):
