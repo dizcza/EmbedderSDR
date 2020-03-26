@@ -71,6 +71,7 @@ class TrainerGradKWTA(TrainerGrad):
                  optimizer: torch.optim.Optimizer,
                  scheduler: Union[_LRScheduler, ReduceLROnPlateau, None] = None,
                  kwta_scheduler: Optional[KWTAScheduler] = None,
+                 accuracy_measure=None,
                  **kwargs):
         """
         :param model: NN model
@@ -80,15 +81,27 @@ class TrainerGradKWTA(TrainerGrad):
         :param scheduler: learning rate scheduler
         :param kwta_scheduler: kWTA sparsity and hardness scheduler
         """
-        super().__init__(model=model, criterion=criterion, data_loader=data_loader, optimizer=optimizer,
-                         scheduler=scheduler, accuracy_measure=AccuracyEmbeddingKWTA(), **kwargs)
-        n_kwta_layers = len(find_layers(self.model, layer_class=KWinnersTakeAll))
-        if n_kwta_layers == 0:
+        if accuracy_measure is None:
+            accuracy_measure = AccuracyEmbeddingKWTA()
+        if not isinstance(accuracy_measure, AccuracyEmbeddingKWTA):
+            raise ValueError("'accuracy_measure' must be of instance "
+                             "AccuracyEmbeddingKWTA")
+        super().__init__(model=model,
+                         criterion=criterion,
+                         data_loader=data_loader,
+                         optimizer=optimizer,
+                         scheduler=scheduler,
+                         accuracy_measure=accuracy_measure,
+                         **kwargs)
+        kwta_layers = tuple(find_layers(self.model,
+                                        layer_class=KWinnersTakeAll))
+        if len(kwta_layers) == 0:
             raise ValueError("When a model has no kWTA layer, use TrainerGrad")
-        elif n_kwta_layers > 1:
+        elif len(kwta_layers) > 1:
             raise ValueError("Only 1 kWTA layer is accepted per model.")
         self.kwta_scheduler = kwta_scheduler
-        self.mask_trainer_kwta = MaskTrainerIndex(image_shape=self.mask_trainer.image_shape)
+        self.mask_trainer_kwta = MaskTrainerIndex(
+            image_shape=self.mask_trainer.image_shape)
         self._update_accuracy_state()
 
         self.sparsity_online = MeanOnline()

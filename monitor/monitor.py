@@ -77,10 +77,12 @@ class MonitorKWTA(Monitor):
             title=title,
             xlabel='Embedding dimension',
             rownames=['Last layer'],
+            width=None,
+            height=200,
         ))
 
 
-class MonitorAutoenc(Monitor):
+class MonitorAutoenc(MonitorKWTA):
 
     def plot_autoencoder(self, images, reconstructed, n_show=10):
         assert images.shape == reconstructed.shape, "Input & decoded image shape differs"

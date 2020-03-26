@@ -18,7 +18,7 @@ class AutoEncoderLinear(nn.Module):
         encoded = self.kwta(encoded)
         decoded = self.decoder(encoded)
         decoded = decoded.view(*input_shape)
-        return decoded
+        return encoded, decoded
 
 
 class AutoEncoderConv(nn.Module):
@@ -45,4 +45,4 @@ class AutoEncoderConv(nn.Module):
         encoded = self.kwta(x)
         decoded = self.decoder(encoded)
         decoded = decoded.view(*input_shape)
-        return decoded
+        return x, decoded
