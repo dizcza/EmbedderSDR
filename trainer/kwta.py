@@ -104,9 +104,6 @@ class TrainerGradKWTA(TrainerGrad):
             image_shape=self.mask_trainer.image_shape)
         self._update_accuracy_state()
 
-        self.sparsity_online = MeanOnline()
-        self.firing_rate_online = MeanOnlineVector()
-
     def _init_monitor(self, mutual_info):
         normalize_inverse = get_normalize_inverse(self.data_loader.normalize)
         monitor = MonitorKWTA(
@@ -115,6 +112,12 @@ class TrainerGradKWTA(TrainerGrad):
             normalize_inverse=normalize_inverse
         )
         return monitor
+
+    def _init_online_measures(self):
+        online = super()._init_online_measures()
+        online['sparsity'] = MeanOnline()
+        online['firing_rate'] = MeanOnlineVector()
+        return online
 
     def monitor_functions(self):
         super().monitor_functions()
@@ -175,27 +178,24 @@ class TrainerGradKWTA(TrainerGrad):
 
     def log_trainer(self):
         super().log_trainer()
-        self.monitor.log(f"KWTA scheduler: {self.kwta_scheduler}")
+        self.monitor.log(repr(self.kwta_scheduler))
 
     def _on_forward_pass_batch(self, input, output, labels):
         super()._on_forward_pass_batch(input, output, labels)
         sparsity = output.norm(p=1, dim=1).mean() / output.shape[1]
-        self.sparsity_online.update(sparsity)
-        self.firing_rate_online.update(output)
+        self.online['sparsity'].update(sparsity)
+        self.online['firing_rate'].update(output)
 
     def _epoch_finished(self, epoch, loss):
         super()._epoch_finished(epoch, loss)
         if self.kwta_scheduler is not None:
             self.kwta_scheduler.step(epoch=epoch)
         self._update_accuracy_state()
-        self._epoch_finished_monitor()
-
-    def _epoch_finished_monitor(self):
-        self.monitor.update_sparsity(self.sparsity_online.get_mean(),
+        self.monitor.update_sparsity(self.online['sparsity'].get_mean(),
                                      mode='train')
-        self.monitor.update_firing_rate(self.firing_rate_online.get_mean())
-        self.sparsity_online.reset()
-        self.firing_rate_online.reset()
+        self.monitor.update_firing_rate(self.online['firing_rate'].get_mean())
+        for online_measure in self.online.values():
+            online_measure.reset()
 
     def _update_accuracy_state(self):
         if not isinstance(self.accuracy_measure, AccuracyEmbeddingKWTA):

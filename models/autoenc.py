@@ -1,15 +1,13 @@
 import torch.nn as nn
 
-from models.kwta import KWinnersTakeAllSoft
-
 
 class AutoEncoderLinear(nn.Module):
-    def __init__(self, input_dim: int, encoding_dim: int, sparsity=0.15):
+    def __init__(self, input_dim: int, encoding_dim: int, kwta):
         super().__init__()
         # self.encoder = nn.Sequential(nn.Linear(input_dim, encoding_dim), nn.ReLU(inplace=True))
         self.encoder = nn.Linear(input_dim, encoding_dim, bias=False)
         self.decoder = nn.Linear(encoding_dim, input_dim)
-        self.kwta = KWinnersTakeAllSoft(hardness=1, sparsity=sparsity)
+        self.kwta = kwta
 
     def forward(self, x):
         input_shape = x.shape
@@ -22,7 +20,7 @@ class AutoEncoderLinear(nn.Module):
 
 
 class AutoEncoderConv(nn.Module):
-    def __init__(self, input_dim: int, encoding_dim: int, sparsity=0.15):
+    def __init__(self, input_dim: int, encoding_dim: int, kwta):
         super().__init__()
         conv_channels = 3
         linear_in_features = conv_channels * 8 * 8
@@ -32,7 +30,7 @@ class AutoEncoderConv(nn.Module):
         self.maxpool = nn.MaxPool2d(kernel_size=3)
         self.encoder = nn.Linear(linear_in_features, encoding_dim, bias=False)
         self.decoder = nn.Linear(encoding_dim, input_dim)
-        self.kwta = KWinnersTakeAllSoft(hardness=1, sparsity=sparsity)
+        self.kwta = kwta
 
     def forward(self, x):
         input_shape = x.shape

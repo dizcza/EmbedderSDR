@@ -98,12 +98,14 @@ def train_grad(n_epoch=10, dataset_cls=MNIST):
 
 
 def train_autoenc(n_epoch=35, dataset_cls=MNIST):
-    model = AutoEncoderLinear(input_dim=784, encoding_dim=256, sparsity=0.15)
+    kwta = KWinnersTakeAllSoft(hardness=1, sparsity=0.15)
+    # kwta = SynapticScaling(kwta, synaptic_scale=3.0)
+    model = AutoEncoderLinear(input_dim=784, encoding_dim=256, kwta=kwta)
     optimizer, scheduler = get_optimizer_scheduler(model)
     # normalize = transforms.Normalize(mean=(0.1307,), std=(0.3081,))
     data_loader = DataLoader(dataset_cls, normalize=None)
     kwta_scheduler = KWTAScheduler(model=model, step_size=10,
-                                   gamma_sparsity=0.3, min_sparsity=0.05,
+                                   gamma_sparsity=0.7, min_sparsity=0.05,
                                    gamma_hardness=2, max_hardness=10)
     trainer = TrainerAutoenc(model,
                              criterion=nn.BCEWithLogitsLoss(),
@@ -137,7 +139,7 @@ def train_kwta(n_epoch=500, dataset_cls=MNIST):
     normalize = transforms.Normalize(mean=(0.1307,), std=(0.3081,))
     data_loader = DataLoader(dataset_cls, normalize=normalize)
     kwta_scheduler = KWTAScheduler(model=model, step_size=15,
-                                   gamma_sparsity=0.3, min_sparsity=0.05,
+                                   gamma_sparsity=0.7, min_sparsity=0.05,
                                    gamma_hardness=2, max_hardness=10)
     trainer = TrainerGradKWTA(model=model,
                               criterion=criterion,
@@ -164,7 +166,7 @@ def train_pretrained(n_epoch=500, dataset_cls=CIFAR10):
                                      std=(0.247, 0.243, 0.261))
     data_loader = DataLoader(dataset_cls, normalize=normalize)
     kwta_scheduler = KWTAScheduler(model=model, step_size=15,
-                                   gamma_sparsity=0.3, min_sparsity=0.05,
+                                   gamma_sparsity=0.7, min_sparsity=0.05,
                                    gamma_hardness=2, max_hardness=10)
     trainer = TrainerGradKWTA(model=model,
                               criterion=criterion,
@@ -189,7 +191,7 @@ def train_caltech(n_epoch=500, dataset_cls=Caltech256):
         criterion = ContrastiveLossRandom(metric='cosine')
         optimizer, scheduler = get_optimizer_scheduler(model)
         kwta_scheduler = KWTAScheduler(model=model, step_size=15,
-                                       gamma_sparsity=0.3, min_sparsity=0.05,
+                                       gamma_sparsity=0.7, min_sparsity=0.05,
                                        gamma_hardness=2, max_hardness=10)
         trainer = TrainerGradKWTA(model=model, criterion=criterion,
                                   data_loader=data_loader, optimizer=optimizer,

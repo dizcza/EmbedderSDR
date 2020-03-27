@@ -16,7 +16,7 @@ class MLP_kWTA(nn.Module):
     def __init__(self, fc1, fc2, kwta_layer: KWinnersTakeAll):
         super().__init__()
         self.classifier = nn.Sequential(
-            nn.Linear(fc1, fc2),
+            nn.Linear(fc1, fc2, bias=False),
             kwta_layer,
         )
 

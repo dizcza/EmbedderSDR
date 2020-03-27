@@ -88,13 +88,11 @@ class MonitorAutoenc(MonitorKWTA):
         assert images.shape == reconstructed.shape, "Input & decoded image shape differs"
         n_show = min(images.shape[0], n_show)
         images = images[: n_show]
+        reconstructed = reconstructed[: n_show]
         if self.normalize_inverse is not None:
             images = self.normalize_inverse(images)
-        reconstructed = reconstructed[: n_show]
-        reconstructed = reconstructed.sigmoid()
+            reconstructed = self.normalize_inverse(reconstructed)
         images_stacked = torch.cat([images, reconstructed], dim=0)
         images_stacked.clamp_(0, 1)
         self.viz.images(images_stacked, nrow=n_show, win='autoencoder',
-                        opts=dict(
-                            title=f"Original | Decoded",
-                        ))
+                        opts=dict(title=f"Original | Reconstructed"))

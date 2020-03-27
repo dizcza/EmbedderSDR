@@ -102,7 +102,7 @@ class SynapticScaling(SerializableModule):
     Wrapper for KWTA to account synaptic scaling plasticity.
     """
 
-    state_attr = ['frequency']
+    state_attr = ['firing_rate']
 
     def __init__(self, kwta_layer: KWinnersTakeAll, synaptic_scale=1.0):
         super().__init__()
