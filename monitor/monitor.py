@@ -84,18 +84,22 @@ class MonitorKWTA(Monitor):
 
 class MonitorAutoenc(MonitorKWTA):
 
-    def plot_autoencoder(self, images, reconstructed, n_show=10):
+    def plot_autoencoder(self, images, reconstructed, reconstructed_binary,
+                         n_show=10):
         assert images.shape == reconstructed.shape, "Input & decoded image shape differs"
         n_show = min(images.shape[0], n_show)
         images = images[: n_show]
         reconstructed = reconstructed[: n_show]
+        reconstructed_binary = reconstructed_binary[: n_show]
         if self.normalize_inverse is not None:
             images = self.normalize_inverse(images)
             reconstructed = self.normalize_inverse(reconstructed)
-        images_stacked = torch.cat([images, reconstructed], dim=0)
+            # reconstructed_binary is already in [0, 1] range
+        images_stacked = torch.cat(
+            [images, reconstructed, reconstructed_binary], dim=0)
         images_stacked.clamp_(0, 1)
         self.viz.images(images_stacked, nrow=n_show, win='autoencoder',
-                        opts=dict(title=f"Original | Reconstructed"))
+            opts=dict(title="Original | Reconstructed | Reconstructed binary"))
 
     def plot_reconstruction_error(self, pixel_missed, thresholds):
         title = "Reconstruction error"

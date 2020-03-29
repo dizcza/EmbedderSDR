@@ -9,6 +9,7 @@ class AutoEncoderLinear(nn.Module):
                  encoding_dim: int,
                  kwta):
         super().__init__()
+        self.encoding_dim = encoding_dim
         if isinstance(input_dim, int):
             input_dim = [input_dim]
         else:
@@ -32,9 +33,17 @@ class AutoEncoderLinear(nn.Module):
         return encoded, decoded
 
 
+class AutoEncoderLinearTanh(AutoEncoderLinear):
+    def forward(self, x):
+        encoded, decoded = super().forward(x)
+        decoded = decoded.tanh()
+        return encoded, decoded
+
+
 class AutoEncoderConv(nn.Module):
     def __init__(self, input_dim: int, encoding_dim: int, kwta):
         super().__init__()
+        self.encoding_dim = encoding_dim
         conv_channels = 3
         linear_in_features = conv_channels * 8 * 8
         self.conv = nn.Conv2d(in_channels=1, out_channels=conv_channels,

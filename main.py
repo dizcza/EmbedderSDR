@@ -1,6 +1,6 @@
 import os
 
-os.environ['FULL_FORWARD_PASS_SIZE'] = '10000'
+# os.environ['FULL_FORWARD_PASS_SIZE'] = '10000'
 
 import torch
 import torch.nn as nn
@@ -84,38 +84,49 @@ def train_mask():
                       label=label_true)
 
 
-def train_grad(n_epoch=10, dataset_cls=MNIST):
-    model = MLP(784, 128, 10)
+def train_grad(n_epoch=30, dataset_cls=MNIST):
+    model = MLP(784, 64, 10)
     optimizer, scheduler = get_optimizer_scheduler(model)
     criterion = nn.CrossEntropyLoss()
     normalize = transforms.Normalize(mean=(0.1307,), std=(0.3081,))
     data_loader = DataLoader(dataset_cls, normalize=normalize)
     trainer = TrainerGrad(model, criterion=criterion, data_loader=data_loader,
                           optimizer=optimizer, scheduler=scheduler)
-    # trainer.restore()  # uncomment to restore the saved state
-    trainer.monitor.advanced_monitoring(level=MonitorLevel.SIGNAL_TO_NOISE)
-    trainer.train(n_epoch=n_epoch, mutual_info_layers=2)
+    trainer.restore()  # uncomment to restore the saved state
+    # trainer.monitor.advanced_monitoring(level=MonitorLevel.SIGNAL_TO_NOISE)
+    trainer.train(n_epoch=n_epoch, mutual_info_layers=0)
 
 
-def train_autoenc(n_epoch=35, dataset_cls=MNIST):
-    kwta = KWinnersTakeAllSoft(hardness=1, sparsity=0.15)
+def train_autoenc(n_epoch=60, dataset_cls=MNIST):
+    kwta = KWinnersTakeAllSoft(hardness=2, sparsity=0.05)
     # kwta = SynapticScaling(kwta, synaptic_scale=3.0)
-    model = AutoEncoderLinear(input_dim=784, encoding_dim=256, kwta=kwta)
+    # model = AutoEncoderLinear(input_dim=784, encoding_dim=256, kwta=kwta)
+    model = AutoEncoderLinearTanh(input_dim=(784, 64), encoding_dim=2048, kwta=kwta)
+    if isinstance(model, AutoEncoderLinearTanh):
+        # normalize in range [-1, 1]
+        normalize = transforms.Normalize(mean=(0.5,), std=(0.5,))
+        criterion = nn.MSELoss()
+        reconstr_thr = torch.linspace(-0.5, 0.9, steps=10, dtype=torch.float32)
+    else:
+        normalize = None
+        criterion = nn.BCEWithLogitsLoss()
+        reconstr_thr = torch.linspace(0.4, 0.95, steps=10, dtype=torch.float32)
     optimizer, scheduler = get_optimizer_scheduler(model)
-    # normalize = transforms.Normalize(mean=(0.1307,), std=(0.3081,))
-    data_loader = DataLoader(dataset_cls, normalize=None)
+    data_loader = DataLoader(dataset_cls, normalize=normalize, batch_size=4096)
     kwta_scheduler = KWTAScheduler(model=model, step_size=10,
                                    gamma_sparsity=0.7, min_sparsity=0.05,
                                    gamma_hardness=2, max_hardness=10)
+    kwta_scheduler = None
     trainer = TrainerAutoenc(model,
-                             criterion=nn.BCEWithLogitsLoss(),
+                             criterion=criterion,
                              data_loader=data_loader,
                              optimizer=optimizer,
                              scheduler=scheduler,
                              kwta_scheduler=kwta_scheduler,
-                             accuracy_measure=AccuracyEmbeddingAutoenc(cache=True))
+                             reconstruct_threshold=reconstr_thr,
+                             accuracy_measure=AccuracyEmbeddingAutoenc(cache=model.encoding_dim <= 1024))
     # trainer.restore()  # uncomment to restore the saved state
-    # trainer.monitor.advanced_monitoring(level=MonitorLevel.SIGNAL_TO_NOISE)
+    # trainer.monitor.advanced_monitoring(level=MonitorLevel.FULL)
     trainer.train(n_epoch=n_epoch, mutual_info_layers=0)
 
 

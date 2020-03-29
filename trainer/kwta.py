@@ -13,7 +13,7 @@ from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
 from mighty.utils.data import get_normalize_inverse
 
 from models.kwta import KWinnersTakeAllSoft, KWinnersTakeAll, SynapticScaling
-from monitor.accuracy import AccuracyEmbeddingKWTA
+from monitor.accuracy import AccuracyEmbeddingKWTA, AccuracyEmbedding
 from monitor.monitor import MonitorKWTA
 
 
@@ -83,9 +83,9 @@ class TrainerGradKWTA(TrainerGrad):
         """
         if accuracy_measure is None:
             accuracy_measure = AccuracyEmbeddingKWTA()
-        if not isinstance(accuracy_measure, AccuracyEmbeddingKWTA):
+        if not isinstance(accuracy_measure, AccuracyEmbedding):
             raise ValueError("'accuracy_measure' must be of instance "
-                             "AccuracyEmbeddingKWTA")
+                             "AccuracyEmbedding")
         super().__init__(model=model,
                          criterion=criterion,
                          data_loader=data_loader,
@@ -229,11 +229,12 @@ class TrainerGradKWTA(TrainerGrad):
 
     def state_dict(self):
         state = super().state_dict()
-        state['kwta_scheduler'] = self.kwta_scheduler.state_dict()
+        if self.kwta_scheduler is not None:
+            state['kwta_scheduler'] = self.kwta_scheduler.state_dict()
         return state
 
     def restore(self, checkpoint_path=None, strict=True):
         checkpoint_state = super().restore(checkpoint_path=checkpoint_path, strict=strict)
-        if checkpoint_state is not None:
+        if checkpoint_state is not None and self.kwta_scheduler is not None:
             self.kwta_scheduler.load_state_dict(checkpoint_state['kwta_scheduler'])
         return checkpoint_state

@@ -17,22 +17,21 @@ from utils import dataset_sparsity
 
 class TrainerAutoenc(TrainerGradKWTA):
 
-
-    def __init__(self, model: nn.Module, criterion: nn.Module, data_loader: DataLoader,
+    def __init__(self, model: nn.Module, criterion: nn.Module,
+                 data_loader: DataLoader,
                  optimizer: torch.optim.Optimizer,
                  scheduler: Union[_LRScheduler, ReduceLROnPlateau, None] = None,
                  kwta_scheduler: Optional[KWTAScheduler] = None,
-                 accuracy_measure=None,
+                 reconstruct_threshold: torch.Tensor = None,
                  **kwargs):
         super().__init__(model, criterion=criterion, data_loader=data_loader,
                          optimizer=optimizer, scheduler=scheduler,
-                         kwta_scheduler=kwta_scheduler,
-                         accuracy_measure=accuracy_measure, **kwargs)
-        self.reconstruct_thr = torch.linspace(0.4, 0.95, steps=10,
-                                              dtype=torch.float32)
-        self.reconstruct_thr = self.reconstruct_thr.view(1, 1, -1)
+                         kwta_scheduler=kwta_scheduler, **kwargs)
+        if reconstruct_threshold is None:
+            reconstruct_threshold = torch.linspace(0., 0.95, steps=10,
+                                                   dtype=torch.float32)
+        self.reconstruct_thr = reconstruct_threshold.view(1, 1, -1)
         self.dataset_sparsity = dataset_sparsity(data_loader.dataset_cls)
-
 
     def _init_monitor(self, mutual_info) -> MonitorAutoenc:
         normalize_inverse = get_normalize_inverse(self.data_loader.normalize)
@@ -86,11 +85,9 @@ class TrainerAutoenc(TrainerGradKWTA):
             latent, reconstructed = self.model(input)
         if isinstance(self.criterion, nn.BCEWithLogitsLoss):
             reconstructed = reconstructed.sigmoid()
-        self.monitor.plot_autoencoder(input, reconstructed)
 
-        rec_flatten = reconstructed.view(reconstructed.shape[0], -1, 1)
-        rec_binary = rec_flatten >= self.reconstruct_thr
-        input_binary = (input > self.dataset_sparsity).view(
-            input.shape[0], -1, 1)
-
+        lowest_id = self.online['pixel-error'].get_mean().argmin()
+        thr_lowest = self.reconstruct_thr[0, 0, lowest_id]
+        rec_binary = (reconstructed >= thr_lowest).type(torch.float32)
+        self.monitor.plot_autoencoder(input, reconstructed, rec_binary)
         self.model.train()
