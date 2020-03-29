@@ -100,8 +100,6 @@ class TrainerGradKWTA(TrainerGrad):
         elif len(kwta_layers) > 1:
             raise ValueError("Only 1 kWTA layer is accepted per model.")
         self.kwta_scheduler = kwta_scheduler
-        self.mask_trainer_kwta = MaskTrainerIndex(
-            image_shape=self.mask_trainer.image_shape)
         self._update_accuracy_state()
 
     def _init_monitor(self, mutual_info):
@@ -213,6 +211,7 @@ class TrainerGradKWTA(TrainerGrad):
 
     def train_mask(self):
         image, label = super().train_mask()
+        mask_trainer_kwta = MaskTrainerIndex(image_shape=image.shape)
         mode_saved = prepare_eval(self.model)
         with torch.no_grad():
             output = self.model(image.unsqueeze(dim=0))
@@ -220,7 +219,10 @@ class TrainerGradKWTA(TrainerGrad):
         neurons_check = min(5, len(argsort))
         for i in range(neurons_check):
             neuron_max = argsort[i]
-            self.monitor.plot_mask(self.model, mask_trainer=self.mask_trainer_kwta, image=image, label=neuron_max,
+            self.monitor.plot_mask(self.model,
+                                   mask_trainer=mask_trainer_kwta,
+                                   image=image,
+                                   label=neuron_max,
                                    win_suffix=i)
         mode_saved.restore(self.model)
         return image, label
