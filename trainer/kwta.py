@@ -3,7 +3,7 @@ from typing import Union, Optional
 
 import torch.nn as nn
 import torch.utils.data
-from mighty.monitor.var_online import MeanOnline, MeanOnlineVector
+from mighty.monitor.var_online import MeanOnline, MeanOnlineVector, VarianceOnline
 from mighty.trainer.gradient import TrainerGrad
 from mighty.trainer.mask import MaskTrainerIndex
 from mighty.utils.common import find_layers, find_named_layers
@@ -133,8 +133,9 @@ class TrainerGradKWTA(TrainerGrad):
     def _init_online_measures(self):
         online = super()._init_online_measures()
         if self.has_kwta():
-            online['sparsity'] = MeanOnline()
-            online['firing_rate'] = MeanOnlineVector()
+            online['sparsity'] = MeanOnline()  # scalar
+            online['firing_rate'] = MeanOnlineVector()  # (V,) vector
+            online['clusters'] = VarianceOnline()  # (C, V) tensor
         return online
 
     def monitor_functions(self):
@@ -208,6 +209,14 @@ class TrainerGradKWTA(TrainerGrad):
             self.online['sparsity'].update(sparsity)
             self.online['firing_rate'].update(output)
 
+            # update clusters
+            class_centroids = []
+            for label in sorted(labels.unique(sorted=True)):
+                outputs_label = output[labels == label]
+                class_centroids.append(outputs_label.mean(dim=0))
+            class_centroids = torch.stack(class_centroids, dim=0)  # (C, V)
+            self.online['clusters'].update(class_centroids)
+
     def _epoch_finished(self, epoch, loss):
         if self.kwta_scheduler is not None:
             self.kwta_scheduler.step(epoch=epoch)
@@ -215,7 +224,11 @@ class TrainerGradKWTA(TrainerGrad):
             self._update_accuracy_state()
             self.monitor.update_sparsity(self.online['sparsity'].get_mean(),
                                          mode='train')
-            self.monitor.update_firing_rate(self.online['firing_rate'].get_mean())
+            self.monitor.update_firing_rate(
+                self.online['firing_rate'].get_mean())
+            self.monitor.clusters_heatmap(
+                *self.online['clusters'].get_mean_std())
+
         super()._epoch_finished(epoch, loss)
 
     def _update_accuracy_state(self):
