@@ -6,24 +6,29 @@ import torch.utils.data
 import torch.utils.data
 from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
 
+from mighty.monitor.accuracy import Accuracy
 from mighty.monitor.var_online import MeanOnline, MeanOnlineVector
 from mighty.utils.algebra import compute_psnr
 from mighty.utils.data import DataLoader, get_normalize_inverse
+from monitor.accuracy import AccuracyEmbeddingAutoenc
 from monitor.monitor import MonitorAutoenc
-from trainer.kwta import TrainerGradKWTA
+from trainer.kwta import TrainerEmbeddingKWTA
 from utils import dataset_sparsity
 
 
-class TrainerAutoenc(TrainerGradKWTA):
+class TrainerAutoenc(TrainerEmbeddingKWTA):
 
     def __init__(self, model: nn.Module, criterion: nn.Module,
                  data_loader: DataLoader,
                  optimizer: torch.optim.Optimizer,
-                 scheduler: Union[_LRScheduler, ReduceLROnPlateau, None] = None,
+                 scheduler: Union[
+                     _LRScheduler, ReduceLROnPlateau, None] = None,
                  reconstruct_threshold: torch.Tensor = None,
+                 accuracy_measure: Accuracy = AccuracyEmbeddingAutoenc(),
                  **kwargs):
         super().__init__(model, criterion=criterion, data_loader=data_loader,
-                         optimizer=optimizer, scheduler=scheduler, **kwargs)
+                         optimizer=optimizer, scheduler=scheduler,
+                         accuracy_measure=accuracy_measure, **kwargs)
         if reconstruct_threshold is None:
             reconstruct_threshold = torch.linspace(0., 0.95, steps=10,
                                                    dtype=torch.float32)

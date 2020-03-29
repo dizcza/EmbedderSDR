@@ -1,2 +1,3 @@
-from .kwta import TrainerGradKWTA, KWTAScheduler
+from .embedding import TrainerEmbedding
+from .kwta import TrainerEmbeddingKWTA, KWTAScheduler
 from .autoenc import TrainerAutoenc

@@ -3,18 +3,16 @@ from typing import Union, Optional
 
 import torch.nn as nn
 import torch.utils.data
-from mighty.monitor.var_online import MeanOnline, MeanOnlineVector, VarianceOnline
+from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
+
 from mighty.trainer.gradient import TrainerGrad
 from mighty.trainer.mask import MaskTrainerIndex
 from mighty.utils.common import find_layers, find_named_layers
 from mighty.utils.data import DataLoader
 from mighty.utils.prepare import prepare_eval
-from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
-from mighty.utils.data import get_normalize_inverse
-
 from models.kwta import KWinnersTakeAllSoft, KWinnersTakeAll, SynapticScaling
-from monitor.accuracy import AccuracyEmbeddingKWTA, AccuracyEmbedding
-from monitor.monitor import MonitorKWTA
+from monitor.accuracy import AccuracyEmbeddingKWTA
+from trainer.embedding import TrainerEmbedding
 
 
 class KWTAScheduler:
@@ -60,10 +58,13 @@ class KWTAScheduler:
         return f"{self.__class__.__name__}({self.extra_repr()})"
 
 
-class TrainerGradKWTA(TrainerGrad):
+
+
+class TrainerEmbeddingKWTA(TrainerEmbedding):
     """
-    Trainer for neural networks with k-winners-take-all (kWTA) activation function.
-    If the model does not have any KWinnerTakeAll layers, it works just as TrainerGrad.
+    Trainer for neural networks with k-winners-take-all (kWTA) activation
+    function. If the model does not have any KWinnerTakeAll layers, it acts
+    as TrainerGradEmbedding.
     """
 
     watch_modules = TrainerGrad.watch_modules + (KWinnersTakeAll, SynapticScaling)
@@ -72,7 +73,7 @@ class TrainerGradKWTA(TrainerGrad):
                  optimizer: torch.optim.Optimizer,
                  scheduler: Union[_LRScheduler, ReduceLROnPlateau, None] = None,
                  kwta_scheduler: Optional[KWTAScheduler] = None,
-                 accuracy_measure=None,
+                 accuracy_measure=AccuracyEmbeddingKWTA(),
                  env_suffix='',
                  **kwargs):
         """
@@ -83,15 +84,10 @@ class TrainerGradKWTA(TrainerGrad):
         :param scheduler: learning rate scheduler
         :param kwta_scheduler: kWTA sparsity and hardness scheduler
         """
-        if accuracy_measure is None:
-            accuracy_measure = AccuracyEmbeddingKWTA()
-        if not isinstance(accuracy_measure, AccuracyEmbedding):
-            raise ValueError("'accuracy_measure' must be of instance "
-                             "AccuracyEmbedding")
         kwta_layers = tuple(find_layers(model,
                                         layer_class=KWinnersTakeAll))
         if not kwta_layers:
-            warnings.warn("For models with no kWTA layer, use TrainerGrad")
+            warnings.warn("For models with no kWTA layer, use TrainerEmbedding")
             env_suffix = f"{env_suffix} no-kwta"
             if kwta_scheduler is not None:
                 warnings.warn("Turning off KWTAScheduler, because the model "
@@ -118,25 +114,6 @@ class TrainerGradKWTA(TrainerGrad):
 
     def has_kwta(self) -> bool:
         return any(find_layers(self.model, KWinnersTakeAll))
-
-    def _init_monitor(self, mutual_info):
-        if not self.has_kwta():
-            return super()._init_monitor(mutual_info)
-        normalize_inverse = get_normalize_inverse(self.data_loader.normalize)
-        monitor = MonitorKWTA(
-            accuracy_measure=self.accuracy_measure,
-            mutual_info=mutual_info,
-            normalize_inverse=normalize_inverse
-        )
-        return monitor
-
-    def _init_online_measures(self):
-        online = super()._init_online_measures()
-        if self.has_kwta():
-            online['sparsity'] = MeanOnline()  # scalar
-            online['firing_rate'] = MeanOnlineVector()  # (V,) vector
-            online['clusters'] = VarianceOnline()  # (C, V) tensor
-        return online
 
     def monitor_functions(self):
         super().monitor_functions()
@@ -202,33 +179,10 @@ class TrainerGradKWTA(TrainerGrad):
         if self.kwta_scheduler:
             self.monitor.log(repr(self.kwta_scheduler))
 
-    def _on_forward_pass_batch(self, input, output, labels):
-        super()._on_forward_pass_batch(input, output, labels)
-        if self.has_kwta():
-            sparsity = output.norm(p=1, dim=1).mean() / output.shape[1]
-            self.online['sparsity'].update(sparsity)
-            self.online['firing_rate'].update(output)
-
-            # update clusters
-            class_centroids = []
-            for label in sorted(labels.unique(sorted=True)):
-                outputs_label = output[labels == label]
-                class_centroids.append(outputs_label.mean(dim=0))
-            class_centroids = torch.stack(class_centroids, dim=0)  # (C, V)
-            self.online['clusters'].update(class_centroids)
-
     def _epoch_finished(self, epoch, loss):
         if self.kwta_scheduler is not None:
             self.kwta_scheduler.step(epoch=epoch)
-        if self.has_kwta():
-            self._update_accuracy_state()
-            self.monitor.update_sparsity(self.online['sparsity'].get_mean(),
-                                         mode='train')
-            self.monitor.update_firing_rate(
-                self.online['firing_rate'].get_mean())
-            self.monitor.clusters_heatmap(
-                *self.online['clusters'].get_mean_std())
-
+        self._update_accuracy_state()
         super()._epoch_finished(epoch, loss)
 
     def _update_accuracy_state(self):

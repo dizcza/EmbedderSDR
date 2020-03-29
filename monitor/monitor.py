@@ -7,7 +7,7 @@ from mighty.monitor import Monitor
 from mighty.monitor.batch_timer import ScheduleStep
 
 
-class MonitorKWTA(Monitor):
+class MonitorEmbedding(Monitor):
 
     def update_sparsity(self, sparsity: float, mode: str):
         # L1 sparsity
@@ -79,7 +79,7 @@ class MonitorKWTA(Monitor):
         ))
 
 
-class MonitorAutoenc(MonitorKWTA):
+class MonitorAutoenc(MonitorEmbedding):
 
     def plot_autoencoder(self, images, reconstructed, reconstructed_binary,
                          n_show=10):
