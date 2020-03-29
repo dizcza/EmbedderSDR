@@ -36,6 +36,8 @@ class KWinnersTakeAllFunction(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, tensor, sparsity: float):
+        if sparsity is None or sparsity == 1.:
+            return tensor
         threshold = get_kwta_threshold(tensor, sparsity)
         mask_active = tensor > threshold
         return mask_active.type(torch.float32)

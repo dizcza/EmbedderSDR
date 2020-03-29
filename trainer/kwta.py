@@ -49,7 +49,8 @@ class KWTAScheduler:
         }
 
     def load_state_dict(self, state_dict: dict):
-        self.last_epoch_update = state_dict['last_epoch_update']
+        if state_dict is not None:
+            self.last_epoch_update = state_dict['last_epoch_update']
 
     def extra_repr(self):
         return f"step_size={self.step_size}, Sparsity(gamma={self.gamma_sparsity}, min={self.min_sparsity}), " \
@@ -72,6 +73,7 @@ class TrainerGradKWTA(TrainerGrad):
                  scheduler: Union[_LRScheduler, ReduceLROnPlateau, None] = None,
                  kwta_scheduler: Optional[KWTAScheduler] = None,
                  accuracy_measure=None,
+                 env_suffix='',
                  **kwargs):
         """
         :param model: NN model
@@ -86,23 +88,40 @@ class TrainerGradKWTA(TrainerGrad):
         if not isinstance(accuracy_measure, AccuracyEmbedding):
             raise ValueError("'accuracy_measure' must be of instance "
                              "AccuracyEmbedding")
+        kwta_layers = tuple(find_layers(model,
+                                        layer_class=KWinnersTakeAll))
+        if not kwta_layers:
+            warnings.warn("For models with no kWTA layer, use TrainerGrad")
+            env_suffix = f"{env_suffix} no-kwta"
+            if kwta_scheduler is not None:
+                warnings.warn("Turning off KWTAScheduler, because the model "
+                              "does not have kWTA layers.")
+                kwta_scheduler = None
+            if isinstance(accuracy_measure, AccuracyEmbeddingKWTA):
+                warnings.warn(
+                    "Setting AccuracyEmbeddingKWTA.sparsity to None, "
+                    "because the model does not have kWTA layers.")
+                accuracy_measure.sparsity = None
+        elif len(kwta_layers) > 1:
+            raise ValueError("Only 1 kWTA layer per model is accepted.")
+
         super().__init__(model=model,
                          criterion=criterion,
                          data_loader=data_loader,
                          optimizer=optimizer,
                          scheduler=scheduler,
                          accuracy_measure=accuracy_measure,
+                         env_suffix=env_suffix,
                          **kwargs)
-        kwta_layers = tuple(find_layers(self.model,
-                                        layer_class=KWinnersTakeAll))
-        if len(kwta_layers) == 0:
-            raise ValueError("When a model has no kWTA layer, use TrainerGrad")
-        elif len(kwta_layers) > 1:
-            raise ValueError("Only 1 kWTA layer is accepted per model.")
         self.kwta_scheduler = kwta_scheduler
         self._update_accuracy_state()
 
+    def has_kwta(self) -> bool:
+        return any(find_layers(self.model, KWinnersTakeAll))
+
     def _init_monitor(self, mutual_info):
+        if not self.has_kwta():
+            return super()._init_monitor(mutual_info)
         normalize_inverse = get_normalize_inverse(self.data_loader.normalize)
         monitor = MonitorKWTA(
             accuracy_measure=self.accuracy_measure,
@@ -113,12 +132,15 @@ class TrainerGradKWTA(TrainerGrad):
 
     def _init_online_measures(self):
         online = super()._init_online_measures()
-        online['sparsity'] = MeanOnline()
-        online['firing_rate'] = MeanOnlineVector()
+        if self.has_kwta():
+            online['sparsity'] = MeanOnline()
+            online['firing_rate'] = MeanOnlineVector()
         return online
 
     def monitor_functions(self):
         super().monitor_functions()
+        if not self.has_kwta():
+            return
 
         def kwta_centroids(viz):
             class_centroids = self.accuracy_measure.centroids
@@ -176,41 +198,38 @@ class TrainerGradKWTA(TrainerGrad):
 
     def log_trainer(self):
         super().log_trainer()
-        self.monitor.log(repr(self.kwta_scheduler))
+        if self.kwta_scheduler:
+            self.monitor.log(repr(self.kwta_scheduler))
 
     def _on_forward_pass_batch(self, input, output, labels):
         super()._on_forward_pass_batch(input, output, labels)
-        sparsity = output.norm(p=1, dim=1).mean() / output.shape[1]
-        self.online['sparsity'].update(sparsity)
-        self.online['firing_rate'].update(output)
+        if self.has_kwta():
+            sparsity = output.norm(p=1, dim=1).mean() / output.shape[1]
+            self.online['sparsity'].update(sparsity)
+            self.online['firing_rate'].update(output)
 
     def _epoch_finished(self, epoch, loss):
-        super()._epoch_finished(epoch, loss)
         if self.kwta_scheduler is not None:
             self.kwta_scheduler.step(epoch=epoch)
-        self._update_accuracy_state()
-        self.monitor.update_sparsity(self.online['sparsity'].get_mean(),
-                                     mode='train')
-        self.monitor.update_firing_rate(self.online['firing_rate'].get_mean())
-        for online_measure in self.online.values():
-            online_measure.reset()
+        if self.has_kwta():
+            self._update_accuracy_state()
+            self.monitor.update_sparsity(self.online['sparsity'].get_mean(),
+                                         mode='train')
+            self.monitor.update_firing_rate(self.online['firing_rate'].get_mean())
+        super()._epoch_finished(epoch, loss)
 
     def _update_accuracy_state(self):
-        if not isinstance(self.accuracy_measure, AccuracyEmbeddingKWTA):
+        if not self.has_kwta() or not isinstance(self.accuracy_measure,
+                                                 AccuracyEmbeddingKWTA):
             return
-        sparsities = set()
-        for kwta_layer in find_layers(self.model, layer_class=KWinnersTakeAll):
-            sparsities.add(kwta_layer.sparsity)
-        sparsities = sorted(sparsities)
-        if len(sparsities) > 1:
-            # irrelevant now
-            warnings.warn(f"Found {len(sparsities)} layers with different sparsities: {sparsities}. "
-                          f"Chose the lowest one for {self.accuracy_measure.__class__.__name__}.")
-        # finally, update accuracy_measure sparsity here
-        self.accuracy_measure.sparsity = sparsities[0]
+        kwta_layer = next(find_layers(self.model, KWinnersTakeAll))
+        # only 1 kWTA per model is accepted
+        self.accuracy_measure.sparsity = kwta_layer.sparsity
 
     def train_mask(self):
         image, label = super().train_mask()
+        if not self.has_kwta():
+            return image, label
         mask_trainer_kwta = MaskTrainerIndex(image_shape=image.shape)
         mode_saved = prepare_eval(self.model)
         with torch.no_grad():
@@ -229,12 +248,13 @@ class TrainerGradKWTA(TrainerGrad):
 
     def state_dict(self):
         state = super().state_dict()
-        if self.kwta_scheduler is not None:
+        if self.has_kwta() and self.kwta_scheduler is not None:
             state['kwta_scheduler'] = self.kwta_scheduler.state_dict()
         return state
 
     def restore(self, checkpoint_path=None, strict=True):
         checkpoint_state = super().restore(checkpoint_path=checkpoint_path, strict=strict)
-        if checkpoint_state is not None and self.kwta_scheduler is not None:
-            self.kwta_scheduler.load_state_dict(checkpoint_state['kwta_scheduler'])
+        if self.has_kwta() and checkpoint_state is not None:
+            kwta_scheduler = checkpoint_state.get('kwta_scheduler', None)
+            self.kwta_scheduler.load_state_dict(kwta_scheduler)
         return checkpoint_state

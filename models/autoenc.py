@@ -2,12 +2,14 @@ from typing import Iterable, Union
 
 import torch.nn as nn
 
+from models import KWinnersTakeAll
+
 
 class AutoEncoderLinear(nn.Module):
     def __init__(self,
                  input_dim: Union[int, Iterable[int]],
                  encoding_dim: int,
-                 kwta):
+                 kwta: KWinnersTakeAll = None):
         super().__init__()
         self.encoding_dim = encoding_dim
         if isinstance(input_dim, int):
@@ -20,8 +22,12 @@ class AutoEncoderLinear(nn.Module):
             encoder.append(nn.ReLU(inplace=True))
         encoder.append(nn.Linear(input_dim[-1],
                                  encoding_dim, bias=False))
-        encoder.append(kwta)
+        if kwta:
+            encoder.append(kwta)
+        else:
+            encoder.append(nn.ReLU(inplace=True))
         self.encoder = nn.Sequential(*encoder)
+
         self.decoder = nn.Linear(encoding_dim, input_dim[0])
 
     def forward(self, x):
@@ -41,7 +47,8 @@ class AutoEncoderLinearTanh(AutoEncoderLinear):
 
 
 class AutoEncoderConv(nn.Module):
-    def __init__(self, input_dim: int, encoding_dim: int, kwta):
+    def __init__(self, input_dim: int, encoding_dim: int,
+                 kwta: KWinnersTakeAll = None):
         super().__init__()
         self.encoding_dim = encoding_dim
         conv_channels = 3
@@ -51,10 +58,14 @@ class AutoEncoderConv(nn.Module):
         self.bn = nn.BatchNorm2d(num_features=conv_channels)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3)
-        self.encoder = nn.Sequential(
-            nn.Linear(linear_in_features, encoding_dim, bias=False),
-            kwta
-        )
+
+        encoder = [nn.Linear(linear_in_features, encoding_dim, bias=False)]
+        if kwta:
+            encoder.append(kwta)
+        else:
+            encoder.append(nn.ReLU(inplace=True))
+        self.encoder = nn.Sequential(*encoder)
+
         self.decoder = nn.Linear(encoding_dim, input_dim)
 
     def forward(self, x):

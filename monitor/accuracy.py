@@ -6,9 +6,9 @@ from models.kwta import KWinnersTakeAllFunction
 
 class AccuracyEmbeddingKWTA(AccuracyEmbedding):
 
-    def __init__(self, metric='cosine', cache=False):
+    def __init__(self, metric='cosine', cache=False, sparsity=None):
         super().__init__(metric=metric, cache=cache)
-        self.sparsity = 1.
+        self.sparsity = sparsity
 
     @property
     def centroids(self):

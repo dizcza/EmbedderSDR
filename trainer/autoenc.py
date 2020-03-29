@@ -1,4 +1,4 @@
-from typing import Union, Optional
+from typing import Union
 
 import torch
 import torch.nn as nn
@@ -8,10 +8,9 @@ from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
 
 from mighty.monitor.var_online import MeanOnline, MeanOnlineVector
 from mighty.utils.algebra import compute_psnr
-from mighty.utils.data import DataLoader
-from mighty.utils.data import get_normalize_inverse
+from mighty.utils.data import DataLoader, get_normalize_inverse
 from monitor.monitor import MonitorAutoenc
-from trainer.kwta import TrainerGradKWTA, KWTAScheduler
+from trainer.kwta import TrainerGradKWTA
 from utils import dataset_sparsity
 
 
@@ -21,12 +20,10 @@ class TrainerAutoenc(TrainerGradKWTA):
                  data_loader: DataLoader,
                  optimizer: torch.optim.Optimizer,
                  scheduler: Union[_LRScheduler, ReduceLROnPlateau, None] = None,
-                 kwta_scheduler: Optional[KWTAScheduler] = None,
                  reconstruct_threshold: torch.Tensor = None,
                  **kwargs):
         super().__init__(model, criterion=criterion, data_loader=data_loader,
-                         optimizer=optimizer, scheduler=scheduler,
-                         kwta_scheduler=kwta_scheduler, **kwargs)
+                         optimizer=optimizer, scheduler=scheduler, **kwargs)
         if reconstruct_threshold is None:
             reconstruct_threshold = torch.linspace(0., 0.95, steps=10,
                                                    dtype=torch.float32)
