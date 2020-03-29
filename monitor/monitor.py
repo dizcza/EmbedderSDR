@@ -96,3 +96,16 @@ class MonitorAutoenc(MonitorKWTA):
         images_stacked.clamp_(0, 1)
         self.viz.images(images_stacked, nrow=n_show, win='autoencoder',
                         opts=dict(title=f"Original | Reconstructed"))
+
+    def plot_reconstruction_error(self, pixel_missed, thresholds):
+        title = "Reconstruction error"
+        self.viz.line(Y=pixel_missed, X=thresholds, win=title, opts=dict(
+            title=title,
+            xlabel="reconstruct threshold",
+            ylabel="#incorrect_pixels"
+        ))
+        self.viz.line_update(pixel_missed.min(), opts=dict(
+            title="Reconstruction error lowest",
+            xlabel="Epoch",
+            ylabel="min_thr #incorrect_pixels"
+        ))
