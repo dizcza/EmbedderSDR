@@ -80,8 +80,7 @@ def basis_pursuit_admm(A, b, lambd, M_inv=None, tol=1e-4, max_iters=100):
 class MatchingPursuit(nn.Module):
     def __init__(self, in_features, out_features):
         super().__init__()
-        self.weight = nn.Parameter(torch.randn(out_features, in_features),
-                                   requires_grad=False)
+        self.weight = torch.randn(out_features, in_features)
         self.weight /= self.weight.norm(p=2, dim=0)
         A = self.weight.t()
         M = A.t().matmul(A) + torch.eye(A.shape[1], device=A.device)
@@ -95,3 +94,12 @@ class MatchingPursuit(nn.Module):
                                      lambd=lambd, max_iters=100)
         decoded = encoded.matmul(self.weight)
         return encoded, decoded.view(*input_shape)
+
+    def extra_repr(self):
+        return f"in_features={self.weight.shape[1]}, " \
+               f"out_features={self.weight.shape[0]}"
+
+    def cuda(self, device=None):
+        super().cuda(device)
+        self.weight = self.weight.cuda(device)
+        self.M_inv = self.M_inv.cuda(device)

@@ -30,8 +30,6 @@ class TestMatchingPursuit(TrainerAutoenc):
         mode_saved = self.model.training
         self.model.train(False)
         use_cuda = torch.cuda.is_available()
-        if use_cuda:
-            self.model.cuda()
 
         loss_online = MeanOnline()
         psnr_online = MeanOnline()

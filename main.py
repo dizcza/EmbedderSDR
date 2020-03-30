@@ -75,7 +75,7 @@ def train_mask():
     )
     monitor.log(repr(mask_trainer))
     if torch.cuda.is_available():
-        model = model.cuda()
+        model.cuda()
         image = image.cuda()
     outputs = model(image.unsqueeze(dim=0))
     proba = accuracy_measure.predict_proba(outputs)
