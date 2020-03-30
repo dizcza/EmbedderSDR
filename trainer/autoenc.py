@@ -59,12 +59,12 @@ class TrainerAutoenc(TrainerEmbeddingKWTA):
         if isinstance(self.criterion, nn.BCEWithLogitsLoss):
             reconstructed = reconstructed.sigmoid()
         psnr = compute_psnr(input, reconstructed)
-        self.online['psnr'].update(psnr)
+        self.online['psnr'].update(psnr.cpu())
 
         # update pixel error
-        rec_flatten = reconstructed.view(reconstructed.shape[0], -1, 1)
+        rec_flatten = reconstructed.cpu().view(reconstructed.shape[0], -1, 1)
         rec_binary = rec_flatten >= self.reconstruct_thr
-        input_binary = (input > self.dataset_sparsity).view(
+        input_binary = (input.cpu() > self.dataset_sparsity).view(
             input.shape[0], -1, 1)
         pix_miss = (rec_binary ^ input_binary).sum(dim=1, dtype=torch.float32)
         self.online['pixel-error'].update(pix_miss)

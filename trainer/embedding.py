@@ -63,14 +63,14 @@ class TrainerEmbedding(TrainerGrad):
     def _on_forward_pass_batch(self, input, output, labels):
         super()._on_forward_pass_batch(input, output, labels)
         sparsity = compute_sparsity(output)
-        self.online['sparsity'].update(sparsity)
-        self.online['firing_rate'].update(output)
+        self.online['sparsity'].update(sparsity.cpu())
+        self.online['firing_rate'].update(output.cpu())
 
         # update clusters
         class_centroids = []
         for label in sorted(labels.unique(sorted=True)):
             outputs_label = output[labels == label]
-            class_centroids.append(outputs_label.mean(dim=0))
+            class_centroids.append(outputs_label.mean(dim=0).cpu())
         class_centroids = torch.stack(class_centroids, dim=0)  # (C, V)
         self.online['clusters'].update(class_centroids)
 

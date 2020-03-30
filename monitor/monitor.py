@@ -32,6 +32,8 @@ class MonitorEmbedding(Monitor):
         if mean.shape != std.shape:
             raise ValueError("The mean and std must have the same shape and"
                              "come from VarianceOnline.get_mean_std().")
+        mean = mean.cpu()
+        std = std.cpu()
 
         def compute_manhattan_dist(tensor: torch.FloatTensor) -> float:
             l1_dist = tensor.unsqueeze(dim=1) - tensor.unsqueeze(dim=0)

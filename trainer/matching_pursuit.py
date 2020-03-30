@@ -49,9 +49,9 @@ class TestMatchingPursuit(TrainerAutoenc):
                     loss_lambd = self._get_loss(inputs, outputs, labels)
                     psnr_lmdb = compute_psnr(inputs, reconstructed)
                     sparsity_lambd = compute_sparsity(latent)
-                    loss.append(loss_lambd)
-                    psnr.append(psnr_lmdb)
-                    sparsity.append(sparsity_lambd)
+                    loss.append(loss_lambd.cpu())
+                    psnr.append(psnr_lmdb.cpu())
+                    sparsity.append(sparsity_lambd.cpu())
 
                 loss_online.update(torch.stack(loss))
                 psnr_online.update(torch.stack(psnr))
