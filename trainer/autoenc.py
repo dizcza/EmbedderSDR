@@ -7,7 +7,7 @@ import torch.utils.data
 from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
 
 from mighty.monitor.accuracy import Accuracy
-from mighty.monitor.var_online import MeanOnline, MeanOnlineVector
+from mighty.monitor.var_online import MeanOnline, MeanOnlineBatch
 from mighty.utils.algebra import compute_psnr
 from mighty.utils.data import DataLoader, get_normalize_inverse
 from monitor.accuracy import AccuracyEmbeddingAutoenc
@@ -47,7 +47,7 @@ class TrainerAutoenc(TrainerEmbeddingKWTA):
     def _init_online_measures(self):
         online = super()._init_online_measures()
         online['psnr'] = MeanOnline()
-        online['pixel-error'] = MeanOnlineVector()
+        online['pixel-error'] = MeanOnlineBatch()
         return online
 
     def _get_loss(self, input, output, labels):

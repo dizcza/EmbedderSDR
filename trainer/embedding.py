@@ -4,12 +4,12 @@ import torch.nn as nn
 import torch.utils.data
 from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
 
-from mighty.monitor.var_online import MeanOnline, MeanOnlineVector, \
+from mighty.monitor.var_online import MeanOnline, MeanOnlineBatch, \
     VarianceOnline
 from mighty.trainer.gradient import TrainerGrad
-from mighty.utils.data import DataLoader
-from mighty.utils.data import get_normalize_inverse
+from mighty.utils.data import DataLoader, get_normalize_inverse
 from monitor.accuracy import AccuracyEmbedding
+from mighty.utils.algebra import compute_sparsity
 from monitor.monitor import MonitorEmbedding
 
 
@@ -56,13 +56,13 @@ class TrainerEmbedding(TrainerGrad):
     def _init_online_measures(self):
         online = super()._init_online_measures()
         online['sparsity'] = MeanOnline()  # scalar
-        online['firing_rate'] = MeanOnlineVector()  # (V,) vector
+        online['firing_rate'] = MeanOnlineBatch()  # (V,) vector
         online['clusters'] = VarianceOnline()  # (C, V) tensor
         return online
 
     def _on_forward_pass_batch(self, input, output, labels):
         super()._on_forward_pass_batch(input, output, labels)
-        sparsity = output.norm(p=1, dim=1).mean() / output.shape[1]
+        sparsity = compute_sparsity(output)
         self.online['sparsity'].update(sparsity)
         self.online['firing_rate'].update(output)
 

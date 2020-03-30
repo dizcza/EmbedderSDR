@@ -19,12 +19,13 @@ from monitor.accuracy import AccuracyEmbeddingKWTA, AccuracyEmbeddingAutoenc
 from mighty.monitor.monitor import Monitor
 from mighty.monitor.mutual_info import *
 from mighty.trainer import *
-from trainer import TrainerGradKWTA, KWTAScheduler, TrainerAutoenc
+from trainer import *
 from mighty.utils.common import set_seed
 from utils.constants import IMAGES_DIR
 from mighty.utils.domain import MonitorLevel
 from mighty.utils.data import NormalizeInverse, DataLoader
 from mighty.utils.hooks import DumpActivationsHook
+from mighty.utils.stub import OptimizerStub
 
 
 def get_optimizer_scheduler(model: nn.Module):
@@ -100,8 +101,8 @@ def train_grad(n_epoch=30, dataset_cls=MNIST):
 def train_autoenc(n_epoch=60, dataset_cls=MNIST):
     kwta = KWinnersTakeAllSoft(hardness=2, sparsity=0.05)
     # kwta = SynapticScaling(kwta, synaptic_scale=3.0)
-    # model = AutoEncoderLinear(input_dim=784, encoding_dim=256, kwta=kwta)
-    model = AutoEncoderLinearTanh(input_dim=(784, 64), encoding_dim=2048, kwta=kwta)
+    model = AutoEncoderLinear(input_dim=784, encoding_dim=256, kwta=kwta)
+    # model = MLP(784, 128, 64)
     if isinstance(model, AutoEncoderLinearTanh):
         # normalize in range [-1, 1]
         normalize = transforms.Normalize(mean=(0.5,), std=(0.5,))
@@ -110,13 +111,12 @@ def train_autoenc(n_epoch=60, dataset_cls=MNIST):
     else:
         normalize = None
         criterion = nn.BCEWithLogitsLoss()
-        reconstr_thr = torch.linspace(0.4, 0.95, steps=10, dtype=torch.float32)
+        reconstr_thr = torch.linspace(0.1, 0.95, steps=10, dtype=torch.float32)
     optimizer, scheduler = get_optimizer_scheduler(model)
     data_loader = DataLoader(dataset_cls, normalize=normalize, batch_size=4096)
     kwta_scheduler = KWTAScheduler(model=model, step_size=10,
                                    gamma_sparsity=0.7, min_sparsity=0.05,
                                    gamma_hardness=2, max_hardness=10)
-    kwta_scheduler = None
     trainer = TrainerAutoenc(model,
                              criterion=criterion,
                              data_loader=data_loader,
@@ -128,6 +128,17 @@ def train_autoenc(n_epoch=60, dataset_cls=MNIST):
     # trainer.restore()  # uncomment to restore the saved state
     # trainer.monitor.advanced_monitoring(level=MonitorLevel.FULL)
     trainer.train(n_epoch=n_epoch, mutual_info_layers=0)
+
+
+def test_matching_pursuit(dataset_cls=MNIST):
+    # os.environ['FULL_FORWARD_PASS_SIZE'] = '10000'
+    model = MatchingPursuit(784, 2048)
+    data_loader = DataLoader(dataset_cls, normalize=None, batch_size=4096)
+    trainer = TestMatchingPursuit(model,
+                                  criterion=nn.MSELoss(),
+                                  data_loader=data_loader,
+                                  optimizer=OptimizerStub())
+    trainer.train(n_epoch=1, mutual_info_layers=0)
 
 
 def test(model, n_epoch=500, dataset_cls=MNIST):
@@ -152,14 +163,14 @@ def train_kwta(n_epoch=500, dataset_cls=MNIST):
     kwta_scheduler = KWTAScheduler(model=model, step_size=15,
                                    gamma_sparsity=0.7, min_sparsity=0.05,
                                    gamma_hardness=2, max_hardness=10)
-    trainer = TrainerGradKWTA(model=model,
-                              criterion=criterion,
-                              data_loader=data_loader,
-                              optimizer=optimizer,
-                              scheduler=scheduler,
-                              kwta_scheduler=kwta_scheduler,
-                              accuracy_measure=AccuracyEmbeddingKWTA(cache=True),
-                              env_suffix='')
+    trainer = TrainerEmbedding(model=model,
+                               criterion=criterion,
+                               data_loader=data_loader,
+                               optimizer=optimizer,
+                               scheduler=scheduler,
+                               kwta_scheduler=kwta_scheduler,
+                               accuracy_measure=AccuracyEmbeddingKWTA(cache=True),
+                               env_suffix='')
     # trainer.restore()
     trainer.monitor.advanced_monitoring(level=MonitorLevel.SIGNAL_TO_NOISE)
     trainer.train(n_epoch=n_epoch, mutual_info_layers=1)
@@ -179,14 +190,14 @@ def train_pretrained(n_epoch=500, dataset_cls=CIFAR10):
     kwta_scheduler = KWTAScheduler(model=model, step_size=15,
                                    gamma_sparsity=0.7, min_sparsity=0.05,
                                    gamma_hardness=2, max_hardness=10)
-    trainer = TrainerGradKWTA(model=model,
-                              criterion=criterion,
-                              data_loader=data_loader,
-                              optimizer=optimizer,
-                              scheduler=scheduler,
-                              kwta_scheduler=kwta_scheduler,
-                              accuracy_measure=AccuracyEmbeddingKWTA(),
-                              env_suffix='')
+    trainer = TrainerEmbedding(model=model,
+                               criterion=criterion,
+                               data_loader=data_loader,
+                               optimizer=optimizer,
+                               scheduler=scheduler,
+                               kwta_scheduler=kwta_scheduler,
+                               accuracy_measure=AccuracyEmbeddingKWTA(),
+                               env_suffix='')
     trainer.train(n_epoch=n_epoch, mutual_info_layers=1, mask_explain=False)
 
 
@@ -204,10 +215,10 @@ def train_caltech(n_epoch=500, dataset_cls=Caltech256):
         kwta_scheduler = KWTAScheduler(model=model, step_size=15,
                                        gamma_sparsity=0.7, min_sparsity=0.05,
                                        gamma_hardness=2, max_hardness=10)
-        trainer = TrainerGradKWTA(model=model, criterion=criterion,
-                                  data_loader=data_loader, optimizer=optimizer,
-                                  scheduler=scheduler,
-                                  kwta_scheduler=kwta_scheduler)
+        trainer = TrainerEmbedding(model=model, criterion=criterion,
+                                   data_loader=data_loader, optimizer=optimizer,
+                                   scheduler=scheduler,
+                                   kwta_scheduler=kwta_scheduler)
     else:
         criterion = nn.CrossEntropyLoss()
         optimizer, scheduler = get_optimizer_scheduler(model)
@@ -242,7 +253,8 @@ if __name__ == '__main__':
     set_seed(26)
     # torch.backends.cudnn.benchmark = True
     # train_kwta()
-    train_autoenc()
+    test_matching_pursuit()
+    # train_autoenc()
     # dump_activations()
     # train_grad()
     # test()

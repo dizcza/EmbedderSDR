@@ -3,6 +3,7 @@ from tqdm import tqdm
 
 from mighty.monitor.var_online import MeanOnline
 from mighty.utils.data import DataLoader
+from mighty.utils.algebra import compute_sparsity
 
 
 def dataset_sparsity(dataset_cls=MNIST, verbose=True):
@@ -20,7 +21,7 @@ def dataset_sparsity(dataset_cls=MNIST, verbose=True):
             disable=not verbose,
             leave=False):
         images = images.flatten(start_dim=1)
-        sparsity = images.norm(p=1, dim=1).mean() / images.shape[1]
+        sparsity = compute_sparsity(images)
         sparsity_online.update(sparsity)
     return sparsity_online.get_mean()
 
