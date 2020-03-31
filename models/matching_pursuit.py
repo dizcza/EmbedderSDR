@@ -1,5 +1,8 @@
 import torch
 import torch.nn as nn
+import math
+
+from .kwta import KWinnersTakeAll, WinnerTakeAll
 
 
 def negligible_improvement(x, x_prev, tol):
@@ -77,29 +80,78 @@ def basis_pursuit_admm(A, b, lambd, M_inv=None, tol=1e-4, max_iters=100):
     return v_solution
 
 
-class MatchingPursuit(nn.Module):
+class _MatchingPursuitLinear(nn.Module):
     def __init__(self, in_features, out_features):
         super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
         self.weight = torch.randn(out_features, in_features)
         self.weight /= self.weight.norm(p=2, dim=0)
+
+    def cuda(self, device=None):
+        super().cuda(device)
+        self.weight = self.weight.cuda()
+
+    def extra_repr(self):
+        return f"in_features={self.in_features}, " \
+               f"out_features={self.out_features}"
+
+
+class MatchingPursuit(_MatchingPursuitLinear):
+    def __init__(self, in_features, out_features, lamb=0.2):
+        super().__init__(in_features, out_features)
         A = self.weight.t()
         M = A.t().matmul(A) + torch.eye(A.shape[1], device=A.device)
         self.M_inv = M.inverse().t_()
+        self.lambd = lamb
 
-    def forward(self, x, lambd=0.2):
+    def forward(self, x, lambd=None):
         input_shape = x.shape
-        x = x.flatten(start_dim=1)
+        if lambd is None:
+            lambd = self.lambd
+        x = x.detach().flatten(start_dim=1)
         encoded = basis_pursuit_admm(A=self.weight.t(),
                                      b=x.detach(), M_inv=self.M_inv,
                                      lambd=lambd, max_iters=100)
         decoded = encoded.matmul(self.weight)
         return encoded, decoded.view(*input_shape)
 
-    def extra_repr(self):
-        return f"in_features={self.weight.shape[1]}, " \
-               f"out_features={self.weight.shape[0]}"
-
     def cuda(self, device=None):
         super().cuda(device)
-        self.weight = self.weight.cuda(device)
         self.M_inv = self.M_inv.cuda(device)
+
+    def extra_repr(self):
+        return f"{super().extra_repr()}, lambd={self.lambd}"
+
+
+class BinaryMatchingPursuit(_MatchingPursuitLinear):
+    def __init__(self, in_features, out_features,
+                 kwta: KWinnersTakeAll = None):
+        super().__init__(in_features, out_features)
+        self.kwta = kwta
+
+    def forward(self, x: torch.Tensor, sparsity=None):
+        wta = WinnerTakeAll()
+        if self.kwta is None:
+            assert sparsity is not None, "Sparsity should be in range (0, 1)"
+            kwta = KWinnersTakeAll(sparsity)
+        else:
+            kwta = self.kwta
+            sparsity = self.kwta.sparsity
+
+        input_shape = x.shape
+        x = x.detach().flatten(start_dim=1)
+        nonzero = x.shape[1] - (x == 0).sum(dim=1)
+        lambd = 3 * nonzero.max() * self.in_features
+        xr = torch.zeros_like(x)
+        encoded = torch.zeros(x.shape[0], self.out_features,
+                              dtype=torch.float32, device=x.device)
+        k_active = math.ceil(sparsity * self.out_features)
+        for step in range(k_active):
+            residual = (2 * x - xr).matmul(self.weight.t()) - lambd * encoded
+            encoded += wta(residual)
+            xr = kwta(encoded.matmul(self.weight))
+        return encoded, xr.view(*input_shape)
+
+    def extra_repr(self):
+        return f"{super().extra_repr()}, kwta={self.kwta}"

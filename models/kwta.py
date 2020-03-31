@@ -18,7 +18,7 @@ def get_kwta_threshold(tensor: torch.FloatTensor, sparsity: float):
     :return: threshold for kWTA activation function to apply
     """
     unsqueeze_dim = [1] * (tensor.ndimension() - 1)
-    tensor = tensor.view(tensor.shape[0], -1)
+    tensor = tensor.flatten(start_dim=1)
     embedding_dim = tensor.shape[1]
     if embedding_dim < 2:
         raise ValueError(f"Embedding dimension {embedding_dim} should be >= 2")
@@ -32,11 +32,22 @@ def get_kwta_threshold(tensor: torch.FloatTensor, sparsity: float):
     return threshold
 
 
+class WinnerTakeAll(nn.Module):
+
+    def forward(self, tensor: torch.Tensor):
+        input_shape = tensor.shape
+        tensor = tensor.flatten(start_dim=1)
+        winners = tensor.max(dim=1).indices
+        tensor.fill_(0.)
+        tensor[range(tensor.shape[0]), winners] = 1.
+        return tensor.view(*input_shape)
+
+
 class KWinnersTakeAllFunction(torch.autograd.Function):
 
     @staticmethod
     def forward(ctx, tensor, sparsity: float):
-        if sparsity is None or sparsity == 1.:
+        if sparsity is None:
             return tensor
         threshold = get_kwta_threshold(tensor, sparsity)
         mask_active = tensor > threshold
@@ -59,7 +70,8 @@ class KWinnersTakeAll(nn.Module):
         """
         super().__init__()
         assert 0. < sparsity < 1., "Sparsity should lie in (0, 1) interval"
-        self.register_buffer("sparsity", torch.tensor(sparsity, dtype=torch.float32))
+        self.register_buffer("sparsity", torch.as_tensor(sparsity,
+                                                         dtype=torch.float32))
 
     def forward(self, x):
         x = KWinnersTakeAllFunction.apply(x, self.sparsity)

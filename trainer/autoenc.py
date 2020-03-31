@@ -82,6 +82,8 @@ class TrainerAutoenc(TrainerEmbeddingKWTA):
 
     def plot_autoencoder(self):
         input, labels = next(iter(self.data_loader.eval))
+        if torch.cuda.is_available():
+            input = input.cuda()
         self.model.eval()
         with torch.no_grad():
             latent, reconstructed = self.model(input)

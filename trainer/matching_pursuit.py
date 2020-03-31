@@ -1,15 +1,27 @@
 import torch
 import torch.nn as nn
+import torch.utils.data
+import torch.utils.data
 
 from mighty.monitor.var_online import MeanOnline
+from mighty.trainer.trainer import Trainer
 from mighty.utils.algebra import compute_psnr, compute_sparsity
+from mighty.utils.data import DataLoader
+from mighty.utils.stub import OptimizerStub
 from trainer import TrainerAutoenc
 
-from mighty.trainer.trainer import Trainer
 
+class TestMatchingPursuitParameters(TrainerAutoenc):
 
-class TestMatchingPursuit(TrainerAutoenc):
-    bmp_lambdas = torch.linspace(0.05, 0.8, steps=20)
+    def __init__(self, model: nn.Module, criterion: nn.Module,
+                 data_loader: DataLoader,
+                 bmp_params_range: torch.Tensor,
+                 param_name="param",
+                 **kwargs):
+        super().__init__(model, criterion=criterion, data_loader=data_loader,
+                         optimizer=OptimizerStub(), **kwargs)
+        self.bmp_params = bmp_params_range
+        self.param_name = param_name
 
     def train_batch(self, images, labels):
         # never called
@@ -17,11 +29,6 @@ class TestMatchingPursuit(TrainerAutoenc):
 
     def train_epoch(self, epoch):
         self.timer.batch_id += self.timer.batches_in_epoch
-
-    def _on_forward_pass_batch(self, input, output, labels):
-        latent, reconstructed = output
-        psnr = compute_psnr(input, reconstructed)
-        self.online['psnr'].update(psnr)
 
     def full_forward_pass(self):
         assert isinstance(self.criterion,
@@ -41,8 +48,8 @@ class TestMatchingPursuit(TrainerAutoenc):
                 loss = []
                 psnr = []
                 sparsity = []
-                for lambd in self.bmp_lambdas:
-                    outputs = self.model(inputs, lambd=lambd)
+                for bmp_param in self.bmp_params:
+                    outputs = self.model(inputs, bmp_param)
                     latent, reconstructed = outputs
                     loss_lambd = self._get_loss(inputs, outputs, labels)
                     psnr_lmdb = compute_psnr(inputs, reconstructed)
@@ -56,27 +63,27 @@ class TestMatchingPursuit(TrainerAutoenc):
                 sparsity_online.update(torch.stack(sparsity))
 
         loss = loss_online.get_mean()
-        self.monitor.viz.line(Y=loss, X=self.bmp_lambdas, win='Loss',
+        self.monitor.viz.line(Y=loss, X=self.bmp_params, win='Loss',
                               opts=dict(
-                                  xlabel='BMP lambda',
+                                  xlabel=f'BMP {self.param_name}',
                                   ylabel='Loss',
                                   title='Loss'
                               ))
 
         psnr = psnr_online.get_mean()
-        self.monitor.viz.line(Y=psnr, X=self.bmp_lambdas, win='PSNR',
+        self.monitor.viz.line(Y=psnr, X=self.bmp_params, win='PSNR',
                               opts=dict(
-                                  xlabel='BMP lambda',
+                                  xlabel=f'BMP {self.param_name}',
                                   ylabel='Peak signal-to-noise ratio',
                                   title='PSNR'
                               ))
 
         sparsity = sparsity_online.get_mean()
-        self.monitor.viz.line(Y=sparsity, X=self.bmp_lambdas, win='Sparsity',
+        self.monitor.viz.line(Y=sparsity, X=self.bmp_params, win='Sparsity',
                               opts=dict(
-                                  xlabel='BMP lambda',
-                                  ylabel='BMP sparsity',
-                                  title='Sparsity'
+                                  xlabel=f'BMP {self.param_name}',
+                                  ylabel='sparsity',
+                                  title='L1 output sparsity'
                               ))
 
         self.monitor.viz.close(win='Accuracy')
@@ -89,3 +96,16 @@ class TestMatchingPursuit(TrainerAutoenc):
 
     def _epoch_finished(self, epoch, loss):
         Trainer._epoch_finished(self, epoch, loss)
+
+
+class TestMatchingPursuit(TrainerAutoenc):
+
+    def train_batch(self, images, labels):
+        # never called
+        return None, None
+
+    def train_epoch(self, epoch):
+        self.timer.batch_id += self.timer.batches_in_epoch
+
+    def full_forward_pass_test(self):
+        return 0.
