@@ -8,18 +8,23 @@ from mighty.trainer.trainer import Trainer
 from mighty.utils.algebra import compute_psnr, compute_sparsity
 from mighty.utils.data import DataLoader
 from mighty.utils.stub import OptimizerStub
-from trainer import TrainerAutoenc
+from .autoencoder import TrainerAutoencoderBinary
 
 
-class TestMatchingPursuitParameters(TrainerAutoenc):
+class TestMatchingPursuitParameters(TrainerAutoencoderBinary):
 
-    def __init__(self, model: nn.Module, criterion: nn.Module,
+    def __init__(self,
+                 model: nn.Module,
+                 criterion: nn.Module,
                  data_loader: DataLoader,
                  bmp_params_range: torch.Tensor,
                  param_name="param",
                  **kwargs):
-        super().__init__(model, criterion=criterion, data_loader=data_loader,
-                         optimizer=OptimizerStub(), **kwargs)
+        super().__init__(model,
+                         criterion=criterion,
+                         data_loader=data_loader,
+                         optimizer=OptimizerStub(),
+                         **kwargs)
         self.bmp_params = bmp_params_range
         self.param_name = param_name
 
@@ -98,7 +103,7 @@ class TestMatchingPursuitParameters(TrainerAutoenc):
         Trainer._epoch_finished(self, epoch, loss)
 
 
-class TestMatchingPursuit(TrainerAutoenc):
+class TestMatchingPursuit(TrainerAutoencoderBinary):
 
     def train_batch(self, images, labels):
         # never called

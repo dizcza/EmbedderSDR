@@ -4,15 +4,15 @@ from typing import Union, Optional
 import torch.nn as nn
 import torch.utils.data
 from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
+from torch.optim.optimizer import Optimizer
 
-from mighty.trainer.gradient import TrainerGrad
+from mighty.trainer import TrainerEmbedding, TrainerGrad
 from mighty.trainer.mask import MaskTrainerIndex
 from mighty.utils.common import find_layers, find_named_layers
 from mighty.utils.data import DataLoader
 from mighty.utils.prepare import prepare_eval
 from models.kwta import KWinnersTakeAllSoft, KWinnersTakeAll, SynapticScaling
 from monitor.accuracy import AccuracyEmbeddingKWTA
-from trainer.embedding import TrainerEmbedding
 
 
 class KWTAScheduler:
@@ -67,11 +67,15 @@ class TrainerEmbeddingKWTA(TrainerEmbedding):
     as TrainerGradEmbedding.
     """
 
-    watch_modules = TrainerGrad.watch_modules + (KWinnersTakeAll, SynapticScaling)
+    watch_modules = TrainerGrad.watch_modules + (KWinnersTakeAll,
+                                                 SynapticScaling)
 
-    def __init__(self, model: nn.Module, criterion: nn.Module, data_loader: DataLoader,
-                 optimizer: torch.optim.Optimizer,
-                 scheduler: Union[_LRScheduler, ReduceLROnPlateau, None] = None,
+    def __init__(self,
+                 model: nn.Module,
+                 criterion: nn.Module,
+                 data_loader: DataLoader,
+                 optimizer: Optimizer,
+                 scheduler: Union[_LRScheduler, ReduceLROnPlateau] = None,
                  kwta_scheduler: Optional[KWTAScheduler] = None,
                  accuracy_measure=AccuracyEmbeddingKWTA(),
                  env_suffix='',
@@ -121,6 +125,8 @@ class TrainerEmbeddingKWTA(TrainerEmbedding):
             return
 
         def kwta_centroids(viz):
+            if not self.accuracy_measure.is_fit:
+                return
             class_centroids = self.accuracy_measure.centroids
             win = "kWTA class centroids heatmap"
             opts = dict(
@@ -220,7 +226,7 @@ class TrainerEmbeddingKWTA(TrainerEmbedding):
         return state
 
     def restore(self, checkpoint_path=None, strict=True):
-        checkpoint_state = super().restore(checkpoint_path=checkpoint_path, strict=strict)
+        checkpoint_state = super().restore(checkpoint_path, strict=strict)
         if self.has_kwta() and checkpoint_state is not None:
             kwta_scheduler = checkpoint_state.get('kwta_scheduler', None)
             self.kwta_scheduler.load_state_dict(kwta_scheduler)

@@ -15,7 +15,7 @@ import models.cifar
 from mighty.loss import *
 from models import *
 from mighty.monitor.accuracy import AccuracyArgmax
-from monitor.accuracy import AccuracyEmbeddingKWTA, AccuracyEmbeddingAutoenc
+from monitor.accuracy import AccuracyEmbeddingKWTA, AccuracyAutoencoderBinary
 from mighty.monitor.monitor import Monitor
 from mighty.monitor.mutual_info import *
 from mighty.trainer import *
@@ -117,15 +117,15 @@ def train_autoenc(n_epoch=60, dataset_cls=MNIST):
     kwta_scheduler = KWTAScheduler(model=model, step_size=10,
                                    gamma_sparsity=0.7, min_sparsity=0.05,
                                    gamma_hardness=2, max_hardness=10)
-    trainer = TrainerAutoenc(model,
-                             criterion=criterion,
-                             data_loader=data_loader,
-                             optimizer=optimizer,
-                             scheduler=scheduler,
-                             kwta_scheduler=kwta_scheduler,
-                             reconstruct_threshold=reconstr_thr,
-                             accuracy_measure=AccuracyEmbeddingAutoenc(
-                                 cache=model.encoding_dim <= 1024))
+    trainer = TrainerAutoencoderBinary(model,
+                                 criterion=criterion,
+                                 data_loader=data_loader,
+                                 optimizer=optimizer,
+                                 scheduler=scheduler,
+                                 kwta_scheduler=kwta_scheduler,
+                                 reconstruct_threshold=reconstr_thr,
+                                 accuracy_measure=AccuracyAutoencoderBinary(
+                                     cache=model.encoding_dim <= 1024))
     # trainer.restore()  # uncomment to restore the saved state
     # trainer.monitor.advanced_monitoring(level=MonitorLevel.FULL)
     trainer.train(n_epoch=n_epoch, mutual_info_layers=0)

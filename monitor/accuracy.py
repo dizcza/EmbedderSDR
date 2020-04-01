@@ -1,5 +1,4 @@
-import torch
-from mighty.monitor.accuracy import AccuracyEmbedding
+from mighty.monitor.accuracy import AccuracyEmbedding, AccuracyAutoencoder
 
 from models.kwta import KWinnersTakeAllFunction
 
@@ -16,20 +15,10 @@ class AccuracyEmbeddingKWTA(AccuracyEmbedding):
         centroids = KWinnersTakeAllFunction.apply(centroids, self.sparsity)
         return centroids
 
+    def extra_repr(self):
+        return f"{super().extra_repr()}, sparsity={self.sparsity}"
 
-class AccuracyEmbeddingAutoenc(AccuracyEmbeddingKWTA):
-    def partial_fit(self, outputs_batch, labels_batch):
-        latent, reconstructed = outputs_batch
-        super().partial_fit(latent, labels_batch)
 
-    def predict_cached(self):
-        if not self.cache:
-            raise ValueError("Caching is turned off")
-        if len(self.input_cached) == 0:
-            raise ValueError("Empty cached input buffer")
-        input = torch.cat(self.input_cached,  dim=0)
-        return super().predict(input)
+class AccuracyAutoencoderBinary(AccuracyAutoencoder, AccuracyEmbeddingKWTA):
+    pass
 
-    def predict(self, outputs_test):
-        latent, reconstructed = outputs_test
-        return super().predict(latent)

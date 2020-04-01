@@ -24,7 +24,8 @@ def get_kwta_threshold(tensor: torch.FloatTensor, sparsity: float):
         raise ValueError(f"Embedding dimension {embedding_dim} should be >= 2")
     k_active = math.ceil(sparsity * embedding_dim)
     if k_active == embedding_dim:
-        warnings.warn(f"kWTA cardinality {sparsity} is too high. Returning at least 1 zero element.")
+        warnings.warn(f"kWTA cardinality {sparsity} is too high. "
+                      f"Making 1 element equals zero.")
         k_active -= 1
     x_sorted, argsort = tensor.sort(dim=1, descending=True)
     threshold = x_sorted[:, [k_active - 1, k_active]].mean(dim=1)
@@ -70,8 +71,8 @@ class KWinnersTakeAll(nn.Module):
         """
         super().__init__()
         assert 0. < sparsity < 1., "Sparsity should lie in (0, 1) interval"
-        self.register_buffer("sparsity", torch.as_tensor(sparsity,
-                                                         dtype=torch.float32))
+        self.register_buffer("sparsity", torch.tensor(float(sparsity),
+                                                      dtype=torch.float32))
 
     def forward(self, x):
         x = KWinnersTakeAllFunction.apply(x, self.sparsity)
@@ -96,7 +97,8 @@ class KWinnersTakeAllSoft(KWinnersTakeAll):
                          the larger the hardness, the closer sigmoid to the true kwta distribution.
         """
         super().__init__(sparsity=sparsity)
-        self.register_buffer("hardness", torch.tensor(hardness, dtype=torch.float32))
+        self.register_buffer("hardness", torch.tensor(float(hardness),
+                                                      dtype=torch.float32))
 
     def forward(self, x):
         if self.training:
@@ -121,7 +123,8 @@ class SynapticScaling(SerializableModule):
     def __init__(self, kwta_layer: KWinnersTakeAll, synaptic_scale=1.0):
         super().__init__()
         self.kwta = kwta_layer
-        self.register_buffer("synaptic_scale", torch.tensor(synaptic_scale, dtype=torch.float32))
+        self.register_buffer("synaptic_scale", torch.tensor(
+            float(synaptic_scale), dtype=torch.float32))
         self.firing_rate = MeanOnlineBatch()
 
     @property
