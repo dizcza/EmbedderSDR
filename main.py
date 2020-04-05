@@ -15,7 +15,8 @@ import models.cifar
 from mighty.loss import *
 from models import *
 from mighty.monitor.accuracy import AccuracyArgmax
-from monitor.accuracy import AccuracyEmbeddingKWTA, AccuracyAutoencoderBinary
+from monitor.accuracy import AccuracyEmbeddingKWTA, AccuracyAutoencoderBinary, \
+    AccuracyEmbeddingLISTA, AccuracyAutoencoder
 from mighty.monitor.monitor import Monitor
 from mighty.monitor.mutual_info import *
 from mighty.trainer import *
@@ -118,14 +119,14 @@ def train_autoenc(n_epoch=60, dataset_cls=MNIST):
                                    gamma_sparsity=0.7, min_sparsity=0.05,
                                    gamma_hardness=2, max_hardness=10)
     trainer = TrainerAutoencoderBinary(model,
-                                 criterion=criterion,
-                                 data_loader=data_loader,
-                                 optimizer=optimizer,
-                                 scheduler=scheduler,
-                                 kwta_scheduler=kwta_scheduler,
-                                 reconstruct_threshold=reconstr_thr,
-                                 accuracy_measure=AccuracyAutoencoderBinary(
-                                     cache=model.encoding_dim <= 1024))
+                                       criterion=criterion,
+                                       data_loader=data_loader,
+                                       optimizer=optimizer,
+                                       scheduler=scheduler,
+                                       kwta_scheduler=kwta_scheduler,
+                                       reconstruct_threshold=reconstr_thr,
+                                       accuracy_measure=AccuracyAutoencoderBinary(
+                                           cache=model.encoding_dim <= 2048))
     # trainer.restore()  # uncomment to restore the saved state
     # trainer.monitor.advanced_monitoring(level=MonitorLevel.FULL)
     trainer.train(n_epoch=n_epoch, mutual_info_layers=0)
@@ -144,10 +145,28 @@ def test_matching_pursuit_lambdas(dataset_cls=MNIST):
     trainer.train(n_epoch=1, mutual_info_layers=0)
 
 
-def test_binary_matching_pursuit_sparsity(dataset_cls=MNIST):
+def train_lista(dataset_cls=MNIST):
     os.environ['FULL_FORWARD_PASS_SIZE'] = '1000'
-    model = BinaryMatchingPursuit(784, 2048)
+    model = LISTA(784, 256)
     data_loader = DataLoader(dataset_cls, normalize=None, batch_size=256)
+    optimizer, scheduler = get_optimizer_scheduler(model)
+    reconstr_thr = torch.linspace(-0.5, 0.5, steps=3, dtype=torch.float32)
+    trainer = TrainerLISTA(model,
+                           criterion=nn.MSELoss(),
+                           data_loader=data_loader,
+                           optimizer=optimizer,
+                           scheduler=scheduler,
+                           accuracy_measure=AccuracyEmbeddingLISTA(
+                               cache=model.out_features <= 2048),
+                           reconstruct_threshold=reconstr_thr)
+    trainer.train(n_epoch=10, mutual_info_layers=0)
+
+
+def test_binary_matching_pursuit_sparsity(dataset_cls=MNIST):
+    os.environ['FULL_FORWARD_PASS_SIZE'] = '100'
+    kwta = KWinnersTakeAll(sparsity=None)  # sparsity is a variable param
+    model = BinaryMatchingPursuit(784, 2048, kwta=kwta)
+    data_loader = DataLoader(dataset_cls, normalize=None, batch_size=32)
     bmp_sparsity = torch.linspace(0.005, 0.25, steps=2)
     trainer = TestMatchingPursuitParameters(model,
                                             criterion=nn.MSELoss(),
@@ -157,28 +176,34 @@ def test_binary_matching_pursuit_sparsity(dataset_cls=MNIST):
     trainer.train(n_epoch=1, mutual_info_layers=0)
 
 
-def test_matching_pursuit(dataset_cls=MNIST):
-    os.environ['FULL_FORWARD_PASS_SIZE'] = '1000'
-    model = MatchingPursuit(784, 2048)
+def train_matching_pursuit(dataset_cls=MNIST):
+    os.environ['FULL_FORWARD_PASS_SIZE'] = '10000'
+    model = MatchingPursuit(784, 256, lamb=0.2)
     data_loader = DataLoader(dataset_cls, normalize=None, batch_size=256)
-    trainer = TestMatchingPursuit(model,
-                                  criterion=nn.MSELoss(),
-                                  data_loader=data_loader,
-                                  optimizer=OptimizerStub())
-    trainer.train(n_epoch=1, mutual_info_layers=0)
+    criterion = LossPenalty(nn.MSELoss(), lambd=model.lambd)
+    optimizer, scheduler = get_optimizer_scheduler(model)
+    trainer = TrainerAutoencoder(model,
+                                 criterion=criterion,
+                                 data_loader=data_loader,
+                                 optimizer=optimizer,
+                                 scheduler=scheduler,
+                                 accuracy_measure=AccuracyAutoencoder(
+                                     cache=True
+                                 ))
+    trainer.monitor.advanced_monitoring(level=MonitorLevel.FULL)
+    trainer.train(n_epoch=10, mutual_info_layers=0)
 
 
 def test_binary_matching_pursuit(dataset_cls=MNIST):
-    os.environ['FULL_FORWARD_PASS_SIZE'] = '1000'
+    os.environ['FULL_FORWARD_PASS_SIZE'] = '100'
     kwta = KWinnersTakeAll(sparsity=0.1)
     model = BinaryMatchingPursuit(784, 2048, kwta=kwta)
-    data_loader = DataLoader(dataset_cls, normalize=None, batch_size=256)
+    data_loader = DataLoader(dataset_cls, normalize=None, batch_size=32)
     trainer = TestMatchingPursuit(model,
                                   criterion=nn.MSELoss(),
                                   data_loader=data_loader,
                                   optimizer=OptimizerStub())
     trainer.train(n_epoch=1, mutual_info_layers=0)
-
 
 
 def test(model, n_epoch=500, dataset_cls=MNIST):
@@ -193,28 +218,29 @@ def test(model, n_epoch=500, dataset_cls=MNIST):
 
 
 def train_kwta(n_epoch=500, dataset_cls=MNIST):
-    kwta = KWinnersTakeAllSoft(sparsity=0.15)
+    os.environ['FULL_FORWARD_PASS_SIZE'] = '1000'
+    kwta = KWinnersTakeAllSoft(sparsity=0.05)
     # kwta = SynapticScaling(kwta, synaptic_scale=3)
-    model = MLP_kWTA(784, 128, kwta)
+    model = MLP_kWTA(784, 256, kwta)
     optimizer, scheduler = get_optimizer_scheduler(model)
     criterion = TripletLoss(metric='cosine')
     normalize = transforms.Normalize(mean=(0.1307,), std=(0.3081,))
-    data_loader = DataLoader(dataset_cls, normalize=normalize)
+    data_loader = DataLoader(dataset_cls, normalize=normalize, batch_size=10)
     kwta_scheduler = KWTAScheduler(model=model, step_size=15,
                                    gamma_sparsity=0.7, min_sparsity=0.05,
                                    gamma_hardness=2, max_hardness=10)
-    trainer = TrainerEmbedding(model=model,
-                               criterion=criterion,
-                               data_loader=data_loader,
-                               optimizer=optimizer,
-                               scheduler=scheduler,
-                               kwta_scheduler=kwta_scheduler,
-                               accuracy_measure=AccuracyEmbeddingKWTA(
-                                   cache=True),
-                               env_suffix='')
+    trainer = TrainerEmbeddingKWTA(model=model,
+                                   criterion=criterion,
+                                   data_loader=data_loader,
+                                   optimizer=optimizer,
+                                   scheduler=scheduler,
+                                   kwta_scheduler=kwta_scheduler,
+                                   accuracy_measure=AccuracyEmbeddingKWTA(
+                                       cache=True),
+                                   env_suffix='')
     # trainer.restore()
-    trainer.monitor.advanced_monitoring(level=MonitorLevel.SIGNAL_TO_NOISE)
-    trainer.train(n_epoch=n_epoch, mutual_info_layers=1)
+    trainer.monitor.advanced_monitoring(level=MonitorLevel.FULL)
+    trainer.train(n_epoch=n_epoch, mutual_info_layers=0)
 
 
 def train_pretrained(n_epoch=500, dataset_cls=CIFAR10):
@@ -294,9 +320,9 @@ def dump_activations(n_epoch=2, dataset_cls=MNIST):
 if __name__ == '__main__':
     set_seed(26)
     # torch.backends.cudnn.benchmark = True
-    # train_kwta()
-    test_binary_matching_pursuit()
-    # test_matching_pursuit()
+    # train_lista()
+    # test_binary_matching_pursuit()
+    train_matching_pursuit()
     # train_autoenc()
     # dump_activations()
     # train_grad()

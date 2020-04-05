@@ -70,7 +70,6 @@ class TrainerAutoencoderBinary(TrainerAutoencoder, TrainerEmbeddingKWTA):
         super()._on_forward_pass_batch(input, output, labels)
 
     def _epoch_finished(self, epoch, loss):
-        self.plot_autoencoder()
         self.monitor.plot_reconstruction_error(
             self.online['pixel-error'].get_mean(),
             self.reconstruct_thr.squeeze()
