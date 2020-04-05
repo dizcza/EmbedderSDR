@@ -126,19 +126,14 @@ class MatchingPursuit(_MatchingPursuitLinear):
 
 class BinaryMatchingPursuit(_MatchingPursuitLinear):
     def __init__(self, in_features, out_features,
-                 kwta: KWinnersTakeAll = None):
+                 kwta: KWinnersTakeAll):
         super().__init__(in_features, out_features)
         self.kwta = kwta
 
     def forward(self, x: torch.Tensor, sparsity=None):
-        wta = WinnerTakeAll()
-        if self.kwta is None:
-            assert sparsity is not None, "Sparsity should be in range (0, 1)"
-            kwta = KWinnersTakeAll(sparsity)
-        else:
-            kwta = self.kwta
+        if sparsity is None:
             sparsity = self.kwta.sparsity
-
+        wta = WinnerTakeAll()
         input_shape = x.shape
         x = x.detach().flatten(start_dim=1)
         nonzero = x.shape[1] - (x == 0).sum(dim=1)
@@ -150,7 +145,7 @@ class BinaryMatchingPursuit(_MatchingPursuitLinear):
         for step in range(k_active):
             residual = (2 * x - xr).matmul(self.weight.t()) - lambd * encoded
             encoded += wta(residual)
-            xr = kwta(encoded.matmul(self.weight))
+            xr = self.kwta(encoded.matmul(self.weight), sparsity)
         return encoded, xr.view(*input_shape)
 
     def extra_repr(self):

@@ -70,16 +70,26 @@ class KWinnersTakeAll(nn.Module):
         :param sparsity: how many bits leave active
         """
         super().__init__()
-        assert 0. < sparsity < 1., "Sparsity should lie in (0, 1) interval"
-        self.register_buffer("sparsity", torch.tensor(float(sparsity),
-                                                      dtype=torch.float32))
+        if sparsity is not None:
+            if not 0. < sparsity < 1.:
+                raise ValueError("Sparsity should lie in (0, 1) interval")
+            self.register_buffer("sparsity", torch.tensor(float(sparsity),
+                                                          dtype=torch.float32))
+        else:
+            self.sparsity = None
 
-    def forward(self, x):
-        x = KWinnersTakeAllFunction.apply(x, self.sparsity)
+    def forward(self, x, sparsity=None):
+        if sparsity is None:
+            sparsity = self.sparsity
+        x = KWinnersTakeAllFunction.apply(x, sparsity)
         return x
 
     def extra_repr(self):
-        return f'sparsity={self.sparsity:.3f}'
+        if self.sparsity is None:
+            sparsity = 'None'
+        else:
+            sparsity = f"{self.sparsity:.3f}"
+        return f'sparsity={sparsity}'
 
 
 class KWinnersTakeAllSoft(KWinnersTakeAll):
@@ -100,13 +110,15 @@ class KWinnersTakeAllSoft(KWinnersTakeAll):
         self.register_buffer("hardness", torch.tensor(float(hardness),
                                                       dtype=torch.float32))
 
-    def forward(self, x):
+    def forward(self, x, sparsity=None):
+        if sparsity is None:
+            sparsity = self.sparsity
         if self.training:
-            threshold = get_kwta_threshold(x, self.sparsity)
+            threshold = get_kwta_threshold(x, sparsity)
             x_scaled = self.hardness * (x - threshold)
             return x_scaled.sigmoid()
         else:
-            return super().forward(x)
+            return super().forward(x, sparsity)
 
     def extra_repr(self):
         old_repr = super().extra_repr()

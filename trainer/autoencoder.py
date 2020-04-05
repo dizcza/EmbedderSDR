@@ -60,10 +60,11 @@ class TrainerAutoencoderBinary(TrainerAutoencoder, TrainerEmbeddingKWTA):
 
         # update pixel error
         rec_flatten = reconstructed.cpu().view(reconstructed.shape[0], -1, 1)
-        rec_binary = rec_flatten >= self.reconstruct_thr
+        rec_binary = rec_flatten >= self.reconstruct_thr  # (B, V, THR)
         input_binary = (input.cpu() > self.dataset_sparsity).view(
-            input.shape[0], -1, 1)
+            input.shape[0], -1, 1)  # (B, V, 1)
         pix_miss = (rec_binary ^ input_binary).sum(dim=1, dtype=torch.float32)
+        # pix_miss is of shape (B, THR)
         self.online['pixel-error'].update(pix_miss)
 
         super()._on_forward_pass_batch(input, output, labels)
