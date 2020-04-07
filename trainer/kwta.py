@@ -20,13 +20,17 @@ class KWTAScheduler:
     KWinnersTakeAll sparsity scheduler.
     """
 
-    def __init__(self, model: nn.Module, step_size: int, gamma_sparsity=0.5, min_sparsity=0.05,
+    def __init__(self, model: nn.Module, step_size: int, gamma_sparsity=0.5,
+                 min_sparsity=0.05,
                  gamma_hardness=2.0, max_hardness=10):
-        self.kwta_layers = tuple(find_layers(model, layer_class=KWinnersTakeAll))
+        self.kwta_layers = tuple(
+            find_layers(model, layer_class=KWinnersTakeAll))
         self.step_size = step_size
-        self.gamma_sparsity = torch.as_tensor(gamma_sparsity, dtype=torch.float32)
+        self.gamma_sparsity = torch.as_tensor(gamma_sparsity,
+                                              dtype=torch.float32)
         self.min_sparsity = torch.as_tensor(min_sparsity, dtype=torch.float32)
-        self.gamma_hardness = torch.as_tensor(gamma_hardness, dtype=torch.float32)
+        self.gamma_hardness = torch.as_tensor(gamma_hardness,
+                                              dtype=torch.float32)
         self.max_hardness = torch.as_tensor(max_hardness, dtype=torch.float32)
         self.last_epoch_update = -1
 
@@ -34,12 +38,19 @@ class KWTAScheduler:
         return epoch >= self.last_epoch_update + self.step_size
 
     def step(self, epoch: int):
+        updated = False
         if self.need_update(epoch):
             for layer in self.kwta_layers:
-                layer.sparsity = max(layer.sparsity * self.gamma_sparsity, self.min_sparsity)
+                if layer.sparsity is not None:
+                    layer.sparsity = max(layer.sparsity * self.gamma_sparsity,
+                                         self.min_sparsity)
+                    updated |= layer.sparsity != self.min_sparsity
                 if isinstance(layer, KWinnersTakeAllSoft):
-                    layer.hardness = min(layer.hardness * self.gamma_hardness, self.max_hardness)
+                    layer.hardness = min(layer.hardness * self.gamma_hardness,
+                                         self.max_hardness)
+                    updated |= layer.hardness != self.max_hardness
             self.last_epoch_update = epoch
+        return updated
 
     def state_dict(self):
         return {
@@ -51,13 +62,14 @@ class KWTAScheduler:
             self.last_epoch_update = state_dict['last_epoch_update']
 
     def extra_repr(self):
-        return f"step_size={self.step_size}, Sparsity(gamma={self.gamma_sparsity}, min={self.min_sparsity}), " \
-               f"Hardness(gamma={self.gamma_hardness}, max={self.max_hardness})"
+        return f"step_size={self.step_size}," \
+               f"Sparsity(gamma={self.gamma_sparsity}," \
+               f"min={self.min_sparsity}), " \
+               f"Hardness(gamma={self.gamma_hardness}," \
+               f"max={self.max_hardness})"
 
     def __repr__(self):
         return f"{self.__class__.__name__}({self.extra_repr()})"
-
-
 
 
 class TrainerEmbeddingKWTA(TrainerEmbedding):
@@ -91,7 +103,8 @@ class TrainerEmbeddingKWTA(TrainerEmbedding):
         kwta_layers = tuple(find_layers(model,
                                         layer_class=KWinnersTakeAll))
         if not kwta_layers:
-            warnings.warn("For models with no kWTA layer, use TrainerEmbedding")
+            warnings.warn(
+                "For models with no kWTA layer, use TrainerEmbedding")
             env_suffix = f"{env_suffix} no-kwta"
             if kwta_scheduler is not None:
                 warnings.warn("Turning off KWTAScheduler, because the model "
@@ -135,7 +148,8 @@ class TrainerEmbeddingKWTA(TrainerEmbedding):
                 ylabel='Label',
                 rownames=[str(i) for i in range(class_centroids.shape[0])],
             )
-            if class_centroids.shape[0] <= self.monitor.n_classes_format_ytickstep_1:
+            if class_centroids.shape[0] <= \
+                    self.monitor.n_classes_format_ytickstep_1:
                 opts.update(ytickstep=1)
             viz.heatmap(class_centroids, win=win, opts=opts)
 
@@ -153,8 +167,9 @@ class TrainerEmbeddingKWTA(TrainerEmbedding):
             layers_sparsity = []
             names = []
             for name, layer in kwta_named_layers:
-                layers_sparsity.append(layer.sparsity)
-                names.append(name)
+                if layer.sparsity is not None:
+                    layers_sparsity.append(layer.sparsity)
+                    names.append(name)
             viz.line_update(y=layers_sparsity, opts=dict(
                 xlabel='Epoch',
                 ylabel='sparsity',
@@ -187,7 +202,12 @@ class TrainerEmbeddingKWTA(TrainerEmbedding):
 
     def _epoch_finished(self, epoch, loss):
         if self.kwta_scheduler is not None:
-            self.kwta_scheduler.step(epoch=epoch)
+            updated = self.kwta_scheduler.step(epoch=epoch)
+            if updated:
+                # save the activations heatmap before the update
+                self.monitor.clusters_heatmap(
+                    *self.online['clusters'].get_mean_std(),
+                    save=True)
         self._update_accuracy_state()
         super()._epoch_finished(epoch, loss)
 
@@ -195,9 +215,15 @@ class TrainerEmbeddingKWTA(TrainerEmbedding):
         if not self.has_kwta() or not isinstance(self.accuracy_measure,
                                                  AccuracyEmbeddingKWTA):
             return
-        kwta_layer = next(find_layers(self.model, KWinnersTakeAll))
         # only 1 kWTA per model is accepted
-        self.accuracy_measure.sparsity = kwta_layer.sparsity
+        kwta_layer = next(find_layers(self.model, KWinnersTakeAll))
+        sparsity = kwta_layer.sparsity
+        if sparsity is None:
+            # KWinnersTakeAllSoft with threshold
+            # online['sparsity'].get_mean() returns None before the training
+            # is started, but it's fine
+            sparsity = self.online['sparsity'].get_mean()
+        self.accuracy_measure.sparsity = sparsity
 
     def train_mask(self):
         image, label = super().train_mask()

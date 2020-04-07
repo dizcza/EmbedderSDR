@@ -44,6 +44,20 @@ class WinnerTakeAll(nn.Module):
         return tensor.view(*input_shape)
 
 
+class KWinnersTakeAllThresholdFunction(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, tensor, threshold: torch.Tensor):
+        if threshold is None:
+            return tensor
+        mask_active = tensor > threshold
+        return mask_active.type(torch.float32)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output, None
+
+
 class KWinnersTakeAllFunction(torch.autograd.Function):
 
     @staticmethod
@@ -51,8 +65,7 @@ class KWinnersTakeAllFunction(torch.autograd.Function):
         if sparsity is None:
             return tensor
         threshold = get_kwta_threshold(tensor, sparsity)
-        mask_active = tensor > threshold
-        return mask_active.type(torch.float32)
+        return KWinnersTakeAllThresholdFunction.apply(tensor, threshold)
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -78,10 +91,9 @@ class KWinnersTakeAll(nn.Module):
         else:
             self.sparsity = None
 
-    def forward(self, x, sparsity=None):
-        if sparsity is None:
-            sparsity = self.sparsity
-        x = KWinnersTakeAllFunction.apply(x, sparsity)
+    def forward(self, x):
+        assert self.sparsity is not None, "Set the sparsity during the init"
+        x = KWinnersTakeAllFunction.apply(x, self.sparsity)
         return x
 
     def extra_repr(self):
@@ -100,29 +112,43 @@ class KWinnersTakeAllSoft(KWinnersTakeAll):
     Hardness defines how well sigmoid resembles sign function.
     """
 
-    def __init__(self, sparsity=SPARSITY, hardness=1):
+    def __init__(self, sparsity=None, threshold_size=None, hardness=1):
         """
         :param sparsity: how many bits leave active
         :param hardness: exponent power in sigmoid function;
                          the larger the hardness, the closer sigmoid to the true kwta distribution.
         """
         super().__init__(sparsity=sparsity)
+        self.threshold_size = threshold_size
+        if sparsity is not None:
+            self.threshold = None
+            if not 0. < sparsity < 1.:
+                raise ValueError("Sparsity should lie in (0, 1) interval")
+            self.register_buffer("sparsity", torch.tensor(float(sparsity),
+                                                          dtype=torch.float32))
+        elif threshold_size is not None:
+            self.sparsity = None
+            self.threshold = nn.Parameter(torch.randn(threshold_size))
+        else:
+            raise ValueError("Either 'sparsity' or 'threshold_size' "
+                             "must be set")
         self.register_buffer("hardness", torch.tensor(float(hardness),
                                                       dtype=torch.float32))
 
-    def forward(self, x, sparsity=None):
-        if sparsity is None:
-            sparsity = self.sparsity
+    def forward(self, x):
+        if self.threshold is None:
+            threshold = get_kwta_threshold(x, self.sparsity)
+        else:
+            threshold = self.threshold
         if self.training:
-            threshold = get_kwta_threshold(x, sparsity)
             x_scaled = self.hardness * (x - threshold)
             return x_scaled.sigmoid()
-        else:
-            return super().forward(x, sparsity)
+        return KWinnersTakeAllThresholdFunction.apply(x, threshold)
 
     def extra_repr(self):
-        old_repr = super().extra_repr()
-        return f"{old_repr}, hardness={self.hardness}"
+        return f"{super().extra_repr()}, " \
+               f"threshold.shape={self.threshold_size}, " \
+               f"hardness={self.hardness}"
 
 
 class SynapticScaling(SerializableModule):
@@ -144,6 +170,9 @@ class SynapticScaling(SerializableModule):
         return self.kwta.sparsity
 
     def forward(self, x):
+        if not self.training:
+            # don't update firing rate on test
+            return self.kwta(x)
         frequency = self.firing_rate.get_mean()
         if frequency is not None:
             scale = torch.exp(-self.synaptic_scale * frequency)

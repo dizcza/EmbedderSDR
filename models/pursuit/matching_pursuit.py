@@ -9,13 +9,16 @@ from .solver import basis_pursuit_admm
 
 
 class _MatchingPursuitLinear(nn.Module):
-    def __init__(self, in_features, out_features, trainable=False):
+    def __init__(self, in_features, out_features):
         super().__init__()
         self.in_features = in_features
         self.out_features = out_features
         self.weight = torch.randn(out_features, in_features)
-        self.weight /= self.weight.norm(p=2, dim=1).unsqueeze(dim=1)
-        self.weight = nn.Parameter(self.weight, requires_grad=trainable)
+        self.weight = nn.Parameter(self.weight, requires_grad=True)
+
+    def normalize_weight(self):
+        w_norm = self.weight.norm(p=2, dim=1).unsqueeze(dim=1)
+        self.weight.div_(w_norm)
 
     def extra_repr(self):
         return f"in_features={self.in_features}, " \
@@ -25,7 +28,7 @@ class _MatchingPursuitLinear(nn.Module):
 class MatchingPursuit(_MatchingPursuitLinear):
     def __init__(self, in_features, out_features, lamb=0.2,
                  solver=basis_pursuit_admm):
-        super().__init__(in_features, out_features, trainable=True)
+        super().__init__(in_features, out_features)
         self.lambd = lamb
         self.solver = solver
 
@@ -35,8 +38,7 @@ class MatchingPursuit(_MatchingPursuitLinear):
             lambd = self.lambd
         x = x.flatten(start_dim=1)
         with torch.no_grad():
-            w_norm = self.weight.norm(p=2, dim=1).unsqueeze(dim=1)
-            self.weight.div_(w_norm)
+            self.normalize_weight()
             encoded = self.solver(A=self.weight.t(), b=x,
                                   lambd=lambd, max_iters=100)
         decoded = encoded.matmul(self.weight)
@@ -48,14 +50,15 @@ class MatchingPursuit(_MatchingPursuitLinear):
 
 
 class BinaryMatchingPursuit(_MatchingPursuitLinear):
-    def __init__(self, in_features, out_features,
-                 kwta: KWinnersTakeAll):
+    def __init__(self, in_features, out_features, kwta: KWinnersTakeAll):
         super().__init__(in_features, out_features)
         self.kwta = kwta
 
-    def forward(self, x: torch.Tensor, sparsity=None):
-        if sparsity is None:
-            sparsity = self.kwta.sparsity
+    @property
+    def sparsity(self):
+        return self.kwta.sparsity
+
+    def forward(self, x: torch.Tensor):
         wta = WinnerTakeAll()
         input_shape = x.shape
         x = x.detach().flatten(start_dim=1)
@@ -64,11 +67,11 @@ class BinaryMatchingPursuit(_MatchingPursuitLinear):
         xr = torch.zeros_like(x)
         encoded = torch.zeros(x.shape[0], self.out_features,
                               dtype=torch.float32, device=x.device)
-        k_active = math.ceil(sparsity * self.out_features)
+        k_active = math.ceil(self.sparsity * self.out_features)
         for step in range(k_active):
             residual = (2 * x - xr).matmul(self.weight.t()) - lambd * encoded
-            encoded += wta(residual)
-            xr = self.kwta(encoded.matmul(self.weight), sparsity)
+            encoded = encoded + wta(residual)
+            xr = self.kwta(encoded.matmul(self.weight))
         return encoded, xr.view(*input_shape)
 
     def extra_repr(self):
@@ -106,6 +109,5 @@ class LISTA(nn.Module):
         for t in range(self.steps):
             C = B + encoded.matmul(self.s_matrix)  # (B, V)
             encoded = self.shrink(C)
-        with torch.no_grad():
-            decoded = encoded.matmul(self.weight).view(*input_shape)
+        decoded = encoded.matmul(self.weight).view(*input_shape)
         return encoded, decoded, bmp_encoded, bmp_decoded
