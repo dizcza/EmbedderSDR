@@ -22,4 +22,5 @@ class MonitorAutoencBinary(MonitorAutoenc):
             [images, reconstructed, reconstructed_binary], dim=0)
         images_stacked.clamp_(0, 1)
         self.viz.images(images_stacked, nrow=n_show, win='autoencoder',
-            opts=dict(title="Original | Reconstructed | Reconstructed binary"))
+            opts=dict(title="Original (Top) | Reconstructed "
+                            "| Reconstructed binary"))

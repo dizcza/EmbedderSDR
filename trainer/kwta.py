@@ -26,12 +26,10 @@ class KWTAScheduler:
         self.kwta_layers = tuple(
             find_layers(model, layer_class=KWinnersTakeAll))
         self.step_size = step_size
-        self.gamma_sparsity = torch.as_tensor(gamma_sparsity,
-                                              dtype=torch.float32)
-        self.min_sparsity = torch.as_tensor(min_sparsity, dtype=torch.float32)
-        self.gamma_hardness = torch.as_tensor(gamma_hardness,
-                                              dtype=torch.float32)
-        self.max_hardness = torch.as_tensor(max_hardness, dtype=torch.float32)
+        self.gamma_sparsity = gamma_sparsity
+        self.min_sparsity = min_sparsity
+        self.gamma_hardness = gamma_hardness
+        self.max_hardness = max_hardness
         self.last_epoch_update = -1
 
     def need_update(self, epoch: int):
@@ -117,6 +115,10 @@ class TrainerEmbeddingKWTA(TrainerEmbedding):
                 accuracy_measure.sparsity = None
         elif len(kwta_layers) > 1:
             raise ValueError("Only 1 kWTA layer per model is accepted.")
+        kwta = kwta_layers[0]
+        if getattr(kwta, "threshold", None) is not None:
+            # kwta-soft with a threshold
+            env_suffix = f"{env_suffix} threshold"
 
         super().__init__(model=model,
                          criterion=criterion,

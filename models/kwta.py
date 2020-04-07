@@ -84,12 +84,10 @@ class KWinnersTakeAll(nn.Module):
         """
         super().__init__()
         if sparsity is not None:
+            sparsity = float(sparsity)
             if not 0. < sparsity < 1.:
                 raise ValueError("Sparsity should lie in (0, 1) interval")
-            self.register_buffer("sparsity", torch.tensor(float(sparsity),
-                                                          dtype=torch.float32))
-        else:
-            self.sparsity = None
+        self.sparsity = sparsity
 
     def forward(self, x):
         assert self.sparsity is not None, "Set the sparsity during the init"
@@ -118,22 +116,18 @@ class KWinnersTakeAllSoft(KWinnersTakeAll):
         :param hardness: exponent power in sigmoid function;
                          the larger the hardness, the closer sigmoid to the true kwta distribution.
         """
+        if (sparsity is None and threshold_size is None) or \
+                (sparsity is not None and threshold_size is not None):
+            raise ValueError("Either 'sparsity' or 'threshold_size' "
+                             "must be set, but not both.")
         super().__init__(sparsity=sparsity)
         self.threshold_size = threshold_size
-        if sparsity is not None:
+        if self.sparsity is not None:
             self.threshold = None
-            if not 0. < sparsity < 1.:
-                raise ValueError("Sparsity should lie in (0, 1) interval")
-            self.register_buffer("sparsity", torch.tensor(float(sparsity),
-                                                          dtype=torch.float32))
         elif threshold_size is not None:
             self.sparsity = None
             self.threshold = nn.Parameter(torch.randn(threshold_size))
-        else:
-            raise ValueError("Either 'sparsity' or 'threshold_size' "
-                             "must be set")
-        self.register_buffer("hardness", torch.tensor(float(hardness),
-                                                      dtype=torch.float32))
+        self.hardness = float(hardness)
 
     def forward(self, x):
         if self.threshold is None:
