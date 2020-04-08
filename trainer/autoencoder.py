@@ -53,7 +53,8 @@ class TrainerAutoencoderBinary(TrainerAutoencoder, TrainerEmbeddingKWTA):
         online['pixel-error'] = MeanOnlineBatch()
         return online
 
-    def _on_forward_pass_batch(self, input, output, labels):
+    def _on_forward_pass_batch(self, batch, output):
+        input, labels = batch
         latent, reconstructed = output
         if isinstance(self.criterion, nn.BCEWithLogitsLoss):
             reconstructed = reconstructed.sigmoid()
@@ -67,7 +68,7 @@ class TrainerAutoencoderBinary(TrainerAutoencoder, TrainerEmbeddingKWTA):
         # pix_miss is of shape (B, THR)
         self.online['pixel-error'].update(pix_miss)
 
-        super()._on_forward_pass_batch(input, output, labels)
+        super()._on_forward_pass_batch(batch, output)
 
     def _epoch_finished(self, epoch, loss):
         self.monitor.plot_reconstruction_error(

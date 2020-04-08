@@ -2,7 +2,6 @@ import math
 
 import torch
 import torch.nn as nn
-from torch.nn.init import kaiming_uniform_
 
 from models.kwta import KWinnersTakeAll, WinnerTakeAll
 from .solver import basis_pursuit_admm
@@ -76,38 +75,3 @@ class BinaryMatchingPursuit(_MatchingPursuitLinear):
 
     def extra_repr(self):
         return f"{super().extra_repr()}, kwta={self.kwta}"
-
-
-class LISTA(nn.Module):
-    def __init__(self, solver_model: MatchingPursuit, steps=3):
-        super().__init__()
-        solver_model.requires_grad_(False)
-        self.solver_model = solver_model
-        self.steps = steps
-        self.weight = self.solver_model.weight.clone()
-        self.weight.requires_grad_(True)
-        self.shrink = nn.Softshrink(lambd=self.solver_model.lambd)
-        self.s_matrix = nn.Parameter(torch.empty(self.out_features,
-                                                 self.out_features),
-                                     requires_grad=True)
-        kaiming_uniform_(self.s_matrix, a=math.sqrt(5))
-
-    @property
-    def out_features(self):
-        return self.solver_model.out_features
-
-    @property
-    def in_features(self):
-        return self.solver_model.in_features
-
-    def forward(self, x: torch.Tensor):
-        bmp_encoded, bmp_decoded = self.solver_model(x)
-        input_shape = x.shape
-        x = x.flatten(start_dim=1)
-        B = x.matmul(self.weight.t())  # (B, In) @ (In, V) -> (B, V)
-        encoded = self.shrink(B)  # (B, V)
-        for t in range(self.steps):
-            C = B + encoded.matmul(self.s_matrix)  # (B, V)
-            encoded = self.shrink(C)
-        decoded = encoded.matmul(self.weight).view(*input_shape)
-        return encoded, decoded, bmp_encoded, bmp_decoded

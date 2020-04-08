@@ -28,14 +28,12 @@ class TestMatchingPursuitParameters(TrainerAutoencoderBinary):
         self.bmp_params = bmp_params_range
         self.param_name = param_name
 
-    def train_batch(self, images, labels):
-        # never called
-        return None, None
-
     def train_epoch(self, epoch):
         self.timer.batch_id += self.timer.batches_in_epoch
 
-    def full_forward_pass(self):
+    def full_forward_pass(self, train=True):
+        if not train:
+            return None
         assert isinstance(self.criterion,
                           nn.MSELoss), "BMP can work only with MSE loss"
 
@@ -96,21 +94,11 @@ class TestMatchingPursuitParameters(TrainerAutoencoderBinary):
 
         return loss
 
-    def full_forward_pass_test(self):
-        return 0.
-
     def _epoch_finished(self, epoch, loss):
         Trainer._epoch_finished(self, epoch, loss)
 
 
 class TestMatchingPursuit(TrainerAutoencoderBinary):
 
-    def train_batch(self, images, labels):
-        # never called
-        return None, None
-
     def train_epoch(self, epoch):
         self.timer.batch_id += self.timer.batches_in_epoch
-
-    def full_forward_pass_test(self):
-        return 0.
