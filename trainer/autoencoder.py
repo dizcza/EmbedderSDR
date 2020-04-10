@@ -40,11 +40,10 @@ class TrainerAutoencoderBinary(TrainerAutoencoder, TrainerEmbeddingKWTA):
         self.dataset_sparsity = dataset_sparsity(data_loader.dataset_cls)
 
     def _init_monitor(self, mutual_info) -> MonitorAutoencBinary:
-        normalize_inverse = get_normalize_inverse(self.data_loader.normalize)
         monitor = MonitorAutoencBinary(
             accuracy_measure=self.accuracy_measure,
             mutual_info=mutual_info,
-            normalize_inverse=normalize_inverse
+            normalize_inverse=self.data_loader.normalize_inverse
         )
         return monitor
 
@@ -62,6 +61,8 @@ class TrainerAutoencoderBinary(TrainerAutoencoder, TrainerEmbeddingKWTA):
         # update pixel error
         rec_flatten = reconstructed.cpu().view(reconstructed.shape[0], -1, 1)
         rec_binary = rec_flatten >= self.reconstruct_thr  # (B, V, THR)
+        if self.data_loader.normalize_inverse is not None:
+            input = self.data_loader.normalize_inverse(input)
         input_binary = (input.cpu() > self.dataset_sparsity).view(
             input.shape[0], -1, 1)  # (B, V, 1)
         pix_miss = (rec_binary ^ input_binary).sum(dim=1, dtype=torch.float32)
