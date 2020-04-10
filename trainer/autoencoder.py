@@ -78,7 +78,7 @@ class TrainerAutoencoderBinary(TrainerAutoencoder, TrainerEmbeddingKWTA):
         super()._epoch_finished(epoch, loss)
 
     def plot_autoencoder(self):
-        input, labels = next(iter(self.data_loader.eval))
+        input, labels = self.data_loader.sample()
         if torch.cuda.is_available():
             input = input.cuda()
         mode_saved = self.model.training

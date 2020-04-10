@@ -45,7 +45,7 @@ class TestMatchingPursuitParameters(TrainerAutoencoderBinary):
         psnr_online = MeanOnline()
         sparsity_online = MeanOnline()
         with torch.no_grad():
-            for inputs, labels in self.eval_batches(verbose=True):
+            for inputs, labels in self.data_loader.eval(verbose=True):
                 if use_cuda:
                     inputs = inputs.cuda()
                 loss = []
