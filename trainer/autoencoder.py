@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Union, Optional
 
 import torch
 import torch.nn as nn
@@ -15,25 +15,27 @@ from mighty.utils.data import DataLoader
 from monitor.accuracy import AccuracyAutoencoderBinary
 from monitor.monitor import MonitorAutoencBinary
 from utils import dataset_sparsity
-from .kwta import TrainerEmbeddingKWTA
+from .kwta import InterfaceKWTA, KWTAScheduler
 
 
-class TrainerAutoencoderBinary(TrainerAutoencoder, TrainerEmbeddingKWTA):
+class TrainerAutoencoderBinary(InterfaceKWTA, TrainerAutoencoder):
 
     def __init__(self, model: nn.Module, criterion: nn.Module,
                  data_loader: DataLoader,
                  optimizer: Optimizer,
                  scheduler: Union[_LRScheduler, ReduceLROnPlateau] = None,
                  reconstruct_threshold: torch.Tensor = None,
+                 kwta_scheduler: Optional[KWTAScheduler] = None,
                  accuracy_measure: Accuracy = AccuracyAutoencoderBinary(),
                  **kwargs):
-        TrainerEmbeddingKWTA.__init__(self, model,
+        TrainerAutoencoder.__init__(self, model,
                                       criterion=criterion,
                                       data_loader=data_loader,
                                       optimizer=optimizer,
                                       scheduler=scheduler,
                                       accuracy_measure=accuracy_measure,
                                       **kwargs)
+        InterfaceKWTA.__init__(self, kwta_scheduler)
         if reconstruct_threshold is None:
             reconstruct_threshold = torch.linspace(0., 0.95, steps=10,
                                                    dtype=torch.float32)

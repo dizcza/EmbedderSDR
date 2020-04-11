@@ -7,6 +7,7 @@ from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
 from torch.optim.optimizer import Optimizer
 
 from mighty.trainer import TrainerEmbedding, TrainerGrad
+from mighty.trainer.trainer import Trainer
 from mighty.trainer.mask import MaskTrainerIndex
 from mighty.utils.common import find_layers, find_named_layers
 from mighty.utils.data import DataLoader
@@ -70,69 +71,50 @@ class KWTAScheduler:
         return f"{self.__class__.__name__}({self.extra_repr()})"
 
 
-class TrainerEmbeddingKWTA(TrainerEmbedding):
-    """
-    Trainer for neural networks with k-winners-take-all (kWTA) activation
-    function. If the model does not have any KWinnerTakeAll layers, it acts
-    as TrainerGradEmbedding.
-    """
+class InterfaceKWTA(Trainer):
 
-    watch_modules = TrainerGrad.watch_modules + (KWinnersTakeAll,
-                                                 SynapticScaling)
-
-    def __init__(self,
-                 model: nn.Module,
-                 criterion: nn.Module,
-                 data_loader: DataLoader,
-                 optimizer: Optimizer,
-                 scheduler: Union[_LRScheduler, ReduceLROnPlateau] = None,
-                 kwta_scheduler: Optional[KWTAScheduler] = None,
-                 accuracy_measure=AccuracyEmbeddingKWTA(),
-                 env_suffix='',
-                 **kwargs):
-        """
-        :param model: NN model
-        :param criterion: loss function
-        :param dataset_name: one of "MNIST", "CIFAR10", "Caltech256"
-        :param optimizer: gradient-based optimizer (SGD, Adam)
-        :param scheduler: learning rate scheduler
-        :param kwta_scheduler: kWTA sparsity and hardness scheduler
-        """
-        kwta_layers = tuple(find_layers(model,
-                                        layer_class=KWinnersTakeAll))
+    def __init__(self, kwta_scheduler: Optional[KWTAScheduler] = None):
+        self.watch_modules = self.watch_modules + (KWinnersTakeAll,
+                                                   SynapticScaling)
+        kwta_layers = tuple(find_layers(self.model, KWinnersTakeAll))
         if not kwta_layers:
             warnings.warn(
                 "For models with no kWTA layer, use TrainerEmbedding")
-            env_suffix = f"{env_suffix} no-kwta"
+            self.env_suffix = f"{self.env_suffix} no-kwta"
             if kwta_scheduler is not None:
                 warnings.warn("Turning off KWTAScheduler, because the model "
                               "does not have kWTA layers.")
                 kwta_scheduler = None
-            if isinstance(accuracy_measure, AccuracyEmbeddingKWTA):
+            if isinstance(self.accuracy_measure, AccuracyEmbeddingKWTA):
                 warnings.warn(
                     "Setting AccuracyEmbeddingKWTA.sparsity to None, "
                     "because the model does not have kWTA layers.")
-                accuracy_measure.sparsity = None
+                self.accuracy_measure.sparsity = None
         elif len(kwta_layers) > 1:
             raise ValueError("Only 1 kWTA layer per model is accepted.")
         kwta = kwta_layers[0]
         if getattr(kwta, "threshold", None) is not None:
             # kwta-soft with a threshold
-            env_suffix = f"{env_suffix} threshold"
-
-        super().__init__(model=model,
-                         criterion=criterion,
-                         data_loader=data_loader,
-                         optimizer=optimizer,
-                         scheduler=scheduler,
-                         accuracy_measure=accuracy_measure,
-                         env_suffix=env_suffix,
-                         **kwargs)
+            self.env_suffix = f"{self.env_suffix} threshold"
         self.kwta_scheduler = kwta_scheduler
         self._update_accuracy_state()
 
     def has_kwta(self) -> bool:
         return any(find_layers(self.model, KWinnersTakeAll))
+
+    def _update_accuracy_state(self):
+        if not self.has_kwta() or not isinstance(self.accuracy_measure,
+                                                 AccuracyEmbeddingKWTA):
+            return
+        # only 1 kWTA per model is accepted
+        kwta_layer = next(find_layers(self.model, KWinnersTakeAll))
+        sparsity = kwta_layer.sparsity
+        if sparsity is None:
+            # KWinnersTakeAllSoft with threshold
+            # online['sparsity'].get_mean() returns None before the training
+            # is started, but it's fine
+            sparsity = self.online['sparsity'].get_mean()
+        self.accuracy_measure.sparsity = sparsity
 
     def monitor_functions(self):
         super().monitor_functions()
@@ -216,20 +198,6 @@ class TrainerEmbeddingKWTA(TrainerEmbedding):
         self._update_accuracy_state()
         super()._epoch_finished(epoch, loss)
 
-    def _update_accuracy_state(self):
-        if not self.has_kwta() or not isinstance(self.accuracy_measure,
-                                                 AccuracyEmbeddingKWTA):
-            return
-        # only 1 kWTA per model is accepted
-        kwta_layer = next(find_layers(self.model, KWinnersTakeAll))
-        sparsity = kwta_layer.sparsity
-        if sparsity is None:
-            # KWinnersTakeAllSoft with threshold
-            # online['sparsity'].get_mean() returns None before the training
-            # is started, but it's fine
-            sparsity = self.online['sparsity'].get_mean()
-        self.accuracy_measure.sparsity = sparsity
-
     def train_mask(self):
         image, label = super().train_mask()
         if not self.has_kwta():
@@ -262,3 +230,33 @@ class TrainerEmbeddingKWTA(TrainerEmbedding):
             kwta_scheduler = checkpoint_state.get('kwta_scheduler', None)
             self.kwta_scheduler.load_state_dict(kwta_scheduler)
         return checkpoint_state
+
+
+
+class TrainerEmbeddingKWTA(InterfaceKWTA, TrainerEmbedding):
+    """
+    Trainer for neural networks with k-winners-take-all (kWTA) activation
+    function. If the model does not have any KWinnerTakeAll layers, it acts
+    as TrainerGradEmbedding.
+    """
+
+    def __init__(self,
+                 model: nn.Module,
+                 criterion: nn.Module,
+                 data_loader: DataLoader,
+                 optimizer: Optimizer,
+                 scheduler: Union[_LRScheduler, ReduceLROnPlateau] = None,
+                 kwta_scheduler: Optional[KWTAScheduler] = None,
+                 accuracy_measure=AccuracyEmbeddingKWTA(),
+                 env_suffix='',
+                 **kwargs):
+        TrainerEmbedding.__init__(self, model=model,
+                         criterion=criterion,
+                         data_loader=data_loader,
+                         optimizer=optimizer,
+                         scheduler=scheduler,
+                         accuracy_measure=accuracy_measure,
+                         env_suffix=env_suffix,
+                         **kwargs)
+        self.kwta_scheduler = kwta_scheduler
+        InterfaceKWTA.__init__(self, kwta_scheduler)
