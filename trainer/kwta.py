@@ -194,7 +194,10 @@ class TrainerEmbeddingKWTA(TrainerEmbedding):
                 ytype='log',
             ))
 
-        self.monitor.register_func(sparsity)
+        _, kwta = kwta_named_layers[0]
+        if self.kwta_scheduler.min_sparsity != kwta.sparsity:
+            self.monitor.register_func(sparsity)
+
         self.monitor.register_func(hardness)
 
     def log_trainer(self):

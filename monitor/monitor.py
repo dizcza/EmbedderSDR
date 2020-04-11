@@ -7,7 +7,7 @@ from mighty.monitor import MonitorAutoenc
 class MonitorAutoencBinary(MonitorAutoenc):
 
     def plot_autoencoder_binary(self, images, reconstructed,
-                                reconstructed_binary, n_show=10):
+                                reconstructed_binary, n_show=30):
         if images.shape != reconstructed.shape:
             raise ValueError("Input & reconstructed image shapes differ")
         n_show = min(images.shape[0], n_show)
@@ -24,3 +24,12 @@ class MonitorAutoencBinary(MonitorAutoenc):
         self.viz.images(images_stacked, nrow=n_show, win='autoencoder',
             opts=dict(title="Original (Top) | Reconstructed "
                             "| Reconstructed binary"))
+
+    def plot_reconstruction_exact(self, n_exact, n_total):
+        title = "Reconstruction exact"
+        self.viz.line_update([n_exact, n_total], opts=dict(
+            title=title,
+            xlabel="Epoch",
+            ylabel="num. of exactly reconstructed",
+            legend=["exact", "#samples"],
+        ))

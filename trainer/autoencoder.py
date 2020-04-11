@@ -8,9 +8,10 @@ from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
 from torch.optim.optimizer import Optimizer
 
 from mighty.monitor.accuracy import Accuracy
-from mighty.monitor.var_online import MeanOnlineBatch
+from mighty.monitor.var_online import MeanOnlineBatch, SumOnlineBatch
 from mighty.trainer import TrainerAutoencoder
-from mighty.utils.data import DataLoader, get_normalize_inverse
+from mighty.utils.common import input_from_batch
+from mighty.utils.data import DataLoader
 from monitor.accuracy import AccuracyAutoencoderBinary
 from monitor.monitor import MonitorAutoencBinary
 from utils import dataset_sparsity
@@ -37,6 +38,9 @@ class TrainerAutoencoderBinary(TrainerAutoencoder, TrainerEmbeddingKWTA):
             reconstruct_threshold = torch.linspace(0., 0.95, steps=10,
                                                    dtype=torch.float32)
         self.reconstruct_thr = reconstruct_threshold.view(1, 1, -1)
+
+        # the optimal threshold id; will be changed later
+        self.thr_opt_id = len(self.reconstruct_thr) // 2
         self.dataset_sparsity = dataset_sparsity(data_loader.dataset_cls)
 
     def _init_monitor(self, mutual_info) -> MonitorAutoencBinary:
@@ -50,10 +54,11 @@ class TrainerAutoencoderBinary(TrainerAutoencoder, TrainerEmbeddingKWTA):
     def _init_online_measures(self):
         online = super()._init_online_measures()
         online['pixel-error'] = MeanOnlineBatch()
+        online['reconstruct-exact'] = SumOnlineBatch()
         return online
 
     def _on_forward_pass_batch(self, batch, output):
-        input, labels = batch
+        input = input_from_batch(batch)
         latent, reconstructed = output
         if isinstance(self.criterion, nn.BCEWithLogitsLoss):
             reconstructed = reconstructed.sigmoid()
@@ -69,28 +74,36 @@ class TrainerAutoencoderBinary(TrainerAutoencoder, TrainerEmbeddingKWTA):
         # pix_miss is of shape (B, THR)
         self.online['pixel-error'].update(pix_miss)
 
+        correct = pix_miss[:, self.thr_opt_id] == 0
+        self.online['reconstruct-exact'].update(correct)
+
         super()._on_forward_pass_batch(batch, output)
 
     def _epoch_finished(self, epoch, loss):
+        self.thr_opt_id = self.online['pixel-error'].get_mean().argmin()
         self.monitor.plot_reconstruction_error(
             self.online['pixel-error'].get_mean(),
             self.reconstruct_thr.squeeze()
         )
+        n_exact = self.online['reconstruct-exact'].get_sum()
+        n_total = self.online['reconstruct-exact'].count
+        self.monitor.plot_reconstruction_exact(n_exact=n_exact,
+                                               n_total=n_total)
         super()._epoch_finished(epoch, loss)
 
     def plot_autoencoder(self):
-        input, labels = self.data_loader.sample()
+        batch = self.data_loader.sample()
+        input = input_from_batch(batch)
         if torch.cuda.is_available():
             input = input.cuda()
         mode_saved = self.model.training
         self.model.train(False)
         with torch.no_grad():
-            latent, reconstructed = self.model(input)
+            latent, reconstructed = self._forward(batch)
         if isinstance(self.criterion, nn.BCEWithLogitsLoss):
             reconstructed = reconstructed.sigmoid()
 
-        lowest_id = self.online['pixel-error'].get_mean().argmin()
-        thr_lowest = self.reconstruct_thr[0, 0, lowest_id]
+        thr_lowest = self.reconstruct_thr[0, 0, self.thr_opt_id]
         rec_binary = (reconstructed >= thr_lowest).type(torch.float32)
         self.monitor.plot_autoencoder_binary(input, reconstructed, rec_binary)
         self.model.train(mode_saved)
