@@ -1,9 +1,10 @@
 from torchvision.datasets import MNIST
 from tqdm import tqdm
-import torch
+
 from mighty.monitor.var_online import MeanOnline
-from mighty.utils.data import DataLoader
 from mighty.utils.algebra import compute_sparsity
+from mighty.utils.common import input_from_batch
+from mighty.utils.data import DataLoader
 
 
 def dataset_sparsity(dataset_cls=MNIST, verbose=True):
@@ -20,10 +21,7 @@ def dataset_sparsity(dataset_cls=MNIST, verbose=True):
             desc=f"Computing {dataset_cls.__name__} sparsity",
             disable=not verbose,
             leave=False):
-        if isinstance(batch, torch.Tensor):
-            input = batch
-        else:
-            input, labels = batch
+        input = input_from_batch(batch)
         input = input.flatten(start_dim=1)
         sparsity = compute_sparsity(input)
         sparsity_online.update(sparsity)
