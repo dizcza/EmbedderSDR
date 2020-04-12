@@ -22,7 +22,7 @@ from trainer import *
 from mighty.utils.common import set_seed
 from utils.constants import IMAGES_DIR
 from mighty.utils.domain import MonitorLevel
-from mighty.utils.data import NormalizeInverse, DataLoader
+from mighty.utils.data import NormalizeInverse, DataLoader, TransformDefault
 from mighty.utils.hooks import DumpActivationsHook
 from mighty.utils.stub import OptimizerStub
 
@@ -42,54 +42,12 @@ def get_optimizer_scheduler(model: nn.Module):
     return optimizer, scheduler
 
 
-def train_mask():
-    """
-    Train explainable mask for an image from ImageNet, using pretrained model.
-    """
-    model = torchvision.models.vgg19(pretrained=True)
-    model.eval()
-    for param in model.parameters():
-        param.requires_grad_(False)
-    normalize = transforms.Normalize(
-        # ImageNet normalize
-        mean=[0.485, 0.456, 0.406],
-        std=[0.229, 0.224, 0.225]
-    )
-    transform = transforms.Compose([transforms.Resize(size=(224, 224)),
-                                    transforms.ToTensor(), normalize])
-    accuracy_measure = AccuracyArgmax()
-    monitor = Monitor(
-        accuracy_measure=accuracy_measure,
-        mutual_info=MutualInfoKMeans(),
-        normalize_inverse=NormalizeInverse(mean=normalize.mean,
-                                           std=normalize.std),
-    )
-    monitor.open(env_name='mask')
-    image = Image.open(IMAGES_DIR / "flute.jpg")
-    image = transform(image)
-    mask_trainer = MaskTrainer(
-        accuracy_measure=accuracy_measure,
-        image_shape=image.shape,
-        show_progress=True
-    )
-    monitor.log(repr(mask_trainer))
-    if torch.cuda.is_available():
-        model.cuda()
-        image = image.cuda()
-    outputs = model(image.unsqueeze(dim=0))
-    proba = accuracy_measure.predict_proba(outputs)
-    proba_max, label_true = proba[0].max(dim=0)
-    print(f"True label: {label_true} (confidence {proba_max: .5f})")
-    monitor.plot_mask(model=model, mask_trainer=mask_trainer, image=image,
-                      label=label_true)
-
-
 def train_grad(n_epoch=30, dataset_cls=MNIST):
     model = MLP(784, 64, 10)
     optimizer, scheduler = get_optimizer_scheduler(model)
     criterion = nn.CrossEntropyLoss()
-    normalize = transforms.Normalize(mean=(0.1307,), std=(0.3081,))
-    data_loader = DataLoader(dataset_cls, normalize=normalize)
+    data_loader = DataLoader(dataset_cls,
+                             transform=TransformDefault.mnist())
     trainer = TrainerGrad(model, criterion=criterion, data_loader=data_loader,
                           optimizer=optimizer, scheduler=scheduler)
     trainer.restore()  # uncomment to restore the saved state
@@ -112,7 +70,10 @@ def train_autoenc(n_epoch=60, dataset_cls=MNIST):
         criterion = nn.BCEWithLogitsLoss()
         reconstr_thr = torch.linspace(0.1, 0.95, steps=10, dtype=torch.float32)
     optimizer, scheduler = get_optimizer_scheduler(model)
-    data_loader = DataLoader(dataset_cls, normalize=normalize, batch_size=4096)
+    data_loader = DataLoader(dataset_cls,
+                             transform=TransformDefault.mnist(
+                                 normalize=normalize
+                             ))
     kwta_scheduler = KWTAScheduler(model=model, step_size=10,
                                    gamma_sparsity=0.7, min_sparsity=0.05,
                                    gamma_hardness=2, max_hardness=10)
@@ -132,7 +93,10 @@ def train_autoenc(n_epoch=60, dataset_cls=MNIST):
 
 def test_matching_pursuit_lambdas(dataset_cls=MNIST):
     model = MatchingPursuit(784, 2048)
-    data_loader = DataLoader(dataset_cls, normalize=None, batch_size=4096)
+    data_loader = DataLoader(dataset_cls,
+                             transform=TransformDefault.mnist(
+                                 normalize=None
+                             ))
     bmp_lambdas = torch.linspace(0.05, 0.95, steps=10)
     trainer = TestMatchingPursuitParameters(model,
                                             criterion=nn.MSELoss(),
@@ -145,7 +109,10 @@ def test_matching_pursuit_lambdas(dataset_cls=MNIST):
 def test_binary_matching_pursuit_sparsity(dataset_cls=MNIST):
     kwta = KWinnersTakeAll(sparsity=None)  # sparsity is a variable param
     model = BinaryMatchingPursuit(784, 2048, kwta=kwta)
-    data_loader = DataLoader(dataset_cls, normalize=None, batch_size=32)
+    data_loader = DataLoader(dataset_cls,
+                             transform=TransformDefault.mnist(
+                                 normalize=None
+                             ))
     bmp_sparsity = torch.linspace(0.005, 0.25, steps=2)
     trainer = TestMatchingPursuitParameters(model,
                                             criterion=nn.MSELoss(),
@@ -157,7 +124,10 @@ def test_binary_matching_pursuit_sparsity(dataset_cls=MNIST):
 
 def train_matching_pursuit(dataset_cls=MNIST):
     model = MatchingPursuit(784, 256, lamb=0.2)
-    data_loader = DataLoader(dataset_cls, normalize=None, batch_size=256)
+    data_loader = DataLoader(dataset_cls,
+                             transform=TransformDefault.mnist(
+                                 normalize=None
+                             ))
     criterion = LossPenalty(nn.MSELoss(), lambd=model.lambd)
     optimizer, scheduler = get_optimizer_scheduler(model)
     trainer = TrainerAutoencoderBinary(model,
@@ -179,15 +149,14 @@ def train_kwta_autoenc(dataset_cls=MNIST):
     # model = MLP_kWTA_Autoenc(784, embedding_size, kwta)
     # model = BinaryMatchingPursuit(784, embedding_size, kwta)
     model = AutoEncoderLinear(784, embedding_size, kwta)
-    normalize = transforms.Normalize(mean=(0.1307,), std=(0.3081,))
-    data_loader = DataLoader(dataset_cls, normalize=normalize, batch_size=256,
-                             eval_size=None)
+    data_loader = DataLoader(dataset_cls, transform=TransformDefault.mnist(),
+                             batch_size=256, eval_size=10000)
     criterion = nn.MSELoss()
     if kwta.sparsity is None:
         # threshold is used
         criterion = LossPenalty(criterion, lambd=0.002, latent_grad=True)
     optimizer, scheduler = get_optimizer_scheduler(model)
-    kwta_scheduler = KWTAScheduler(model=model, step_size=1,
+    kwta_scheduler = KWTAScheduler(model=model, step_size=3,
                                    gamma_sparsity=0.7, min_sparsity=0.05,
                                    gamma_hardness=2, max_hardness=10)
     trainer = TrainerAutoencoderBinary(model,
@@ -198,7 +167,7 @@ def train_kwta_autoenc(dataset_cls=MNIST):
                                        kwta_scheduler=kwta_scheduler,
                                        accuracy_measure=AccuracyAutoencoderBinary(
                                            cache=True
-                                       ), env_suffix='step1')
+                                       ))
     # trainer.restore()
     trainer.monitor.advanced_monitoring(level=MonitorLevel.FULL)
     trainer.watch_modules = (KWinnersTakeAll,)
@@ -208,7 +177,10 @@ def train_kwta_autoenc(dataset_cls=MNIST):
 def test_binary_matching_pursuit(dataset_cls=MNIST):
     kwta = KWinnersTakeAll(sparsity=0.1)
     model = BinaryMatchingPursuit(784, 2048, kwta=kwta)
-    data_loader = DataLoader(dataset_cls, normalize=None, batch_size=32)
+    data_loader = DataLoader(dataset_cls,
+                             transform=TransformDefault.mnist(
+                                 normalize=None
+                             ))
     trainer = TestMatchingPursuit(model,
                                   criterion=nn.MSELoss(),
                                   data_loader=data_loader,
@@ -221,8 +193,8 @@ def test(model, n_epoch=500, dataset_cls=MNIST):
     for param in model.parameters():
         param.requires_grad_(False)
     criterion = nn.CrossEntropyLoss()
-    normalize = transforms.Normalize(mean=(0.1307,), std=(0.3081,))
-    data_loader = DataLoader(dataset_cls, normalize=normalize)
+    data_loader = DataLoader(dataset_cls,
+                             transform=TransformDefault.mnist())
     trainer = Test(model=model, criterion=criterion, data_loader=data_loader)
     trainer.train(n_epochs=n_epoch, adversarial=True, mask_explain=True)
 
@@ -233,8 +205,8 @@ def train_kwta(n_epoch=500, dataset_cls=MNIST):
     model = MLP_kWTA(784, 256, kwta)
     optimizer, scheduler = get_optimizer_scheduler(model)
     criterion = TripletLoss(metric='cosine')
-    normalize = transforms.Normalize(mean=(0.1307,), std=(0.3081,))
-    data_loader = DataLoader(dataset_cls, normalize=normalize, batch_size=10)
+    data_loader = DataLoader(dataset_cls,
+                             transform=TransformDefault.mnist())
     kwta_scheduler = KWTAScheduler(model=model, step_size=15,
                                    gamma_sparsity=0.7, min_sparsity=0.05,
                                    gamma_hardness=2, max_hardness=10)
@@ -260,9 +232,8 @@ def train_pretrained(n_epoch=500, dataset_cls=CIFAR10):
     model.classifier = nn.Sequential(nn.Linear(1024, 128, bias=False), kwta)
     optimizer, scheduler = get_optimizer_scheduler(model)
     criterion = ContrastiveLossRandom(metric='cosine')
-    normalize = transforms.Normalize(mean=(0.4914, 0.4822, 0.4465),
-                                     std=(0.247, 0.243, 0.261))
-    data_loader = DataLoader(dataset_cls, normalize=normalize)
+    data_loader = DataLoader(dataset_cls,
+                             transform=TransformDefault.cifar10())
     kwta_scheduler = KWTAScheduler(model=model, step_size=15,
                                    gamma_sparsity=0.7, min_sparsity=0.05,
                                    gamma_hardness=2, max_hardness=10)
@@ -284,7 +255,7 @@ def train_caltech(n_epoch=500, dataset_cls=Caltech256):
     kwta = None
     kwta = KWinnersTakeAllSoft(sparsity=0.3)
     model = models.caltech.resnet18(kwta=kwta)
-    data_loader = DataLoader(dataset_cls, normalize=None)
+    data_loader = DataLoader(dataset_cls)
     if kwta:
         criterion = ContrastiveLossRandom(metric='cosine')
         optimizer, scheduler = get_optimizer_scheduler(model)
@@ -303,27 +274,6 @@ def train_caltech(n_epoch=500, dataset_cls=Caltech256):
                               data_loader=data_loader, optimizer=optimizer,
                               scheduler=scheduler)
     trainer.train(n_epochs=n_epoch, mutual_info_layers=0, mask_explain=False)
-
-
-def dump_activations(n_epoch=2, dataset_cls=MNIST):
-    model = MLP(784, 128, 32, 10)
-    optimizer, scheduler = get_optimizer_scheduler(model)
-    criterion = nn.CrossEntropyLoss()
-    normalize = transforms.Normalize(mean=(0.1307,), std=(0.3081,))
-    data_loader = DataLoader(dataset_cls, normalize=normalize)
-    trainer = TrainerGrad(model=model, criterion=criterion,
-                          data_loader=data_loader, optimizer=optimizer,
-                          scheduler=scheduler)
-    trainer.train(n_epochs=n_epoch, mutual_info_layers=0)
-
-    # register forward hook
-    dumper = DumpActivationsHook(model)
-
-    # trigger hooks
-    trainer.run_idle(n_epoch=1)
-
-    # remove hooks when finished and continue training, if needed
-    dumper.remove_hooks()
 
 
 if __name__ == '__main__':
