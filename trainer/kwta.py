@@ -80,7 +80,7 @@ class InterfaceKWTA(Trainer):
         if not kwta_layers:
             warnings.warn(
                 "For models with no kWTA layer, use TrainerEmbedding")
-            self.env_suffix = f"{self.env_suffix} no-kwta"
+            self.env_name = f"{self.env_name} no-kwta"
             if kwta_scheduler is not None:
                 warnings.warn("Turning off KWTAScheduler, because the model "
                               "does not have kWTA layers.")
@@ -95,7 +95,7 @@ class InterfaceKWTA(Trainer):
         kwta = kwta_layers[0]
         if getattr(kwta, "threshold", None) is not None:
             # kwta-soft with a threshold
-            self.env_suffix = f"{self.env_suffix} threshold"
+            self.env_name = f"{self.env_name} threshold"
         self.kwta_scheduler = kwta_scheduler
         self._update_accuracy_state()
 
