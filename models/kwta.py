@@ -1,15 +1,44 @@
-import math
 import warnings
 
+import math
 import torch
+import torch.distributions
 import torch.nn as nn
+from typing import Union
 
 from mighty.monitor.var_online import MeanOnlineBatch
 from utils.constants import SPARSITY
 from utils.layers import SerializableModule
 
 
-def get_kwta_threshold(tensor: torch.FloatTensor, sparsity: float):
+class SparsityPredictor(nn.Module):
+    def __init__(self, in_features: int, max_sparsity: float, min_sparsity=0.001):
+        super().__init__()
+        assert min_sparsity < max_sparsity
+        self.linear = nn.Linear(in_features, out_features=1, bias=False)
+        self.max_sparsity = max_sparsity
+        self.min_sparsity = min_sparsity
+
+    def forward(self, x):
+        sparsity = self.linear(x).sigmoid() * self.max_sparsity
+        return sparsity.squeeze()
+
+    def extra_repr(self):
+        return f"max_sparsity={self.max_sparsity}"
+
+    def forward_threshold(self, x):
+        assert x.ndimension() == 2, "Input tensor is assumed to be flattened"
+        sparsity = self.forward(x)
+        scale = x.std(dim=1)
+        loc = x.mean(dim=1)
+        gaussian = torch.distributions.Normal(loc, scale)
+        sparsity = sparsity.clamp_min(min=self.min_sparsity)
+        threshold = gaussian.icdf(1. - sparsity)
+        return threshold
+
+
+def get_kwta_threshold(tensor: torch.FloatTensor,
+                       sparsity: Union[float, SparsityPredictor]):
     """
     Returns the threshold for kWTA activation function as if input tensor is a linear (batch x embedding_dim).
 
@@ -22,13 +51,17 @@ def get_kwta_threshold(tensor: torch.FloatTensor, sparsity: float):
     embedding_dim = tensor.shape[1]
     if embedding_dim < 2:
         raise ValueError(f"Embedding dimension {embedding_dim} should be >= 2")
-    k_active = math.ceil(sparsity * embedding_dim)
-    if k_active == embedding_dim:
-        warnings.warn(f"kWTA cardinality {sparsity} is too high. "
-                      f"Making 1 element equals zero.")
-        k_active -= 1
-    x_sorted, argsort = tensor.sort(dim=1, descending=True)
-    threshold = x_sorted[:, [k_active - 1, k_active]].mean(dim=1)
+    if isinstance(sparsity, SparsityPredictor):
+        threshold = sparsity.forward_threshold(tensor)
+    else:
+        # float
+        k_active = math.ceil(sparsity * embedding_dim)
+        if k_active == embedding_dim:
+            warnings.warn(f"kWTA cardinality {sparsity} is too high. "
+                          f"Making 1 element equals zero.")
+            k_active -= 1
+        x_sorted, argsort = tensor.sort(dim=1, descending=True)
+        threshold = x_sorted[:, [k_active - 1, k_active]].mean(dim=1)
     threshold = threshold.view(-1, *unsqueeze_dim)
     return threshold
 
@@ -83,10 +116,6 @@ class KWinnersTakeAll(nn.Module):
         :param sparsity: how many bits leave active
         """
         super().__init__()
-        if sparsity is not None:
-            sparsity = float(sparsity)
-            if not 0. < sparsity < 1.:
-                raise ValueError("Sparsity should lie in (0, 1) interval")
         self.sparsity = sparsity
 
     def forward(self, x):
@@ -96,11 +125,10 @@ class KWinnersTakeAll(nn.Module):
 
     def extra_repr(self):
         if self.sparsity is None:
-            sparsity = 'None'
-        else:
-            sparsity = f"{self.sparsity:.3f}"
-        return f'sparsity={sparsity}'
-
+            return "sparsity='None'"
+        elif isinstance(self.sparsity, float):
+            return f"sparsity={self.sparsity:.3f}"
+        return ''
 
 class KWinnersTakeAllSoft(KWinnersTakeAll):
     """
@@ -142,7 +170,7 @@ class KWinnersTakeAllSoft(KWinnersTakeAll):
     def extra_repr(self):
         return f"{super().extra_repr()}, " \
                f"threshold.shape={self.threshold_size}, " \
-               f"hardness={self.hardness}"
+               f"hardness={self.hardness}".lstrip(', ')
 
 
 class SynapticScaling(SerializableModule):

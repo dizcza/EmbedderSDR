@@ -12,8 +12,9 @@ from mighty.trainer.mask import MaskTrainerIndex
 from mighty.utils.common import find_layers, find_named_layers
 from mighty.utils.data import DataLoader
 from mighty.utils.prepare import prepare_eval
-from models.kwta import KWinnersTakeAllSoft, KWinnersTakeAll, SynapticScaling
+from models.kwta import KWinnersTakeAllSoft, KWinnersTakeAll, SynapticScaling, SparsityPredictor
 from monitor.accuracy import AccuracyEmbeddingKWTA
+from monitor.monitor import MonitorEmbeddingKWTA, MonitorEmbedding
 
 
 class KWTAScheduler:
@@ -40,7 +41,7 @@ class KWTAScheduler:
         updated = False
         if self.need_update(epoch):
             for layer in self.kwta_layers:
-                if layer.sparsity is not None:
+                if isinstance(layer.sparsity, float):
                     layer.sparsity = max(layer.sparsity * self.gamma_sparsity,
                                          self.min_sparsity)
                     updated |= layer.sparsity != self.min_sparsity
@@ -116,6 +117,18 @@ class InterfaceKWTA(Trainer):
             sparsity = self.online['sparsity'].get_mean()
         self.accuracy_measure.sparsity = sparsity
 
+    def _init_monitor(self, mutual_info):
+        monitor = MonitorEmbeddingKWTA(
+            accuracy_measure=self.accuracy_measure,
+            mutual_info=mutual_info,
+            normalize_inverse=self.data_loader.normalize_inverse
+        )
+        kwta_layer = next(find_layers(self.model, KWinnersTakeAll))
+        if isinstance(kwta_layer.sparsity, float):
+            # clusters sparsity will be the same
+            monitor.clusters_heatmap = MonitorEmbedding.clusters_heatmap
+        return monitor
+
     def monitor_functions(self):
         super().monitor_functions()
         if not self.has_kwta():
@@ -151,7 +164,7 @@ class InterfaceKWTA(Trainer):
             layers_sparsity = []
             names = []
             for name, layer in kwta_named_layers:
-                if layer.sparsity is not None:
+                if isinstance(layer.sparsity, float):
                     layers_sparsity.append(layer.sparsity)
                     names.append(name)
             viz.line_update(y=layers_sparsity, opts=dict(
