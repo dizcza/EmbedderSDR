@@ -35,14 +35,15 @@ class KWTAScheduler:
         self.min_sparsity = min_sparsity
         self.gamma_hardness = gamma_hardness
         self.max_hardness = max_hardness
-        self.last_epoch_update = -1
+        self.last_epoch = -1
 
-    def need_update(self, epoch: int):
-        return epoch >= self.last_epoch_update + self.step_size
+    def need_update(self):
+        return self.last_epoch % self.step_size == 0
 
-    def step(self, epoch: int):
+    def step(self):
+        self.last_epoch += 1
         updated = False
-        if self.need_update(epoch):
+        if self.need_update():
             for layer in self.kwta_layers:
                 if isinstance(layer.sparsity, float):
                     layer.sparsity = max(layer.sparsity * self.gamma_sparsity,
@@ -52,17 +53,16 @@ class KWTAScheduler:
                     layer.hardness = min(layer.hardness * self.gamma_hardness,
                                          self.max_hardness)
                     updated |= layer.hardness != self.max_hardness
-            self.last_epoch_update = epoch
         return updated
 
     def state_dict(self):
         return {
-            'last_epoch_update': self.last_epoch_update
+            'last_epoch': self.last_epoch
         }
 
     def load_state_dict(self, state_dict: dict):
         if state_dict is not None:
-            self.last_epoch_update = state_dict['last_epoch_update']
+            self.last_epoch = state_dict['last_epoch']
 
     def extra_repr(self):
         return f"step_size={self.step_size}," \
@@ -221,16 +221,16 @@ class InterfaceKWTA(Trainer):
         if self.kwta_scheduler:
             self.monitor.log(repr(self.kwta_scheduler))
 
-    def _epoch_finished(self, epoch, loss):
+    def _epoch_finished(self, loss):
         if self.kwta_scheduler is not None:
-            updated = self.kwta_scheduler.step(epoch=epoch)
+            updated = self.kwta_scheduler.step()
             if updated:
                 # save the activations heatmap before the update
                 self.monitor.clusters_heatmap(
                     *self.online['clusters'].get_mean_std(),
                     save=True)
         self._update_accuracy_state()
-        super()._epoch_finished(epoch, loss)
+        super()._epoch_finished(loss)
 
     def train_mask(self):
         image, label = super().train_mask()

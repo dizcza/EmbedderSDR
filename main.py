@@ -145,13 +145,16 @@ def train_matching_pursuit(dataset_cls=MNIST):
 def train_kwta_autoenc(dataset_cls=MNIST):
     embedding_size = 256
     # kwta = KWinnersTakeAllSoft(threshold_size=embedding_size, hardness=2)
-    kwta = KWinnersTakeAllSoft(sparsity=0.05, hardness=2)
+    sparsity = SparsityPredictor(in_features=embedding_size, max_sparsity=0.03)
+    kwta = KWinnersTakeAllSoft(sparsity=sparsity, hardness=2)
+    # kwta = KWinnersTakeAllSoft(sparsity=0.05, hardness=2)
     # model = MLP_kWTA_Autoenc(784, embedding_size, kwta)
     # model = BinaryMatchingPursuit(784, embedding_size, kwta)
     model = AutoEncoderLinear(784, embedding_size, kwta)
-    data_loader = DataLoader(dataset_cls, transform=TransformDefault.mnist(),
+    data_loader = DataLoader(dataset_cls,
+                             transform=TransformDefault.mnist(normalize=None),
                              batch_size=256, eval_size=10000)
-    criterion = nn.MSELoss()
+    criterion = nn.BCEWithLogitsLoss()
     if kwta.sparsity is None:
         # threshold is used
         criterion = LossPenalty(criterion, lambd=0.002, latent_grad=True)

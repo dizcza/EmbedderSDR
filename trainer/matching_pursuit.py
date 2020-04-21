@@ -94,8 +94,8 @@ class TestMatchingPursuitParameters(TrainerAutoencoderBinary):
 
         return loss
 
-    def _epoch_finished(self, epoch, loss):
-        Trainer._epoch_finished(self, epoch, loss)
+    def _epoch_finished(self, loss):
+        Trainer._epoch_finished(self, loss)
 
 
 class TestMatchingPursuit(TrainerAutoencoderBinary):

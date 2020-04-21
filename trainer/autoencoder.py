@@ -81,7 +81,7 @@ class TrainerAutoencoderBinary(InterfaceKWTA, TrainerAutoencoder):
 
         super()._on_forward_pass_batch(batch, output)
 
-    def _epoch_finished(self, epoch, loss):
+    def _epoch_finished(self, loss):
         self.thr_opt_id = self.online['pixel-error'].get_mean().argmin()
         self.monitor.plot_reconstruction_error(
             self.online['pixel-error'].get_mean(),
@@ -91,7 +91,7 @@ class TrainerAutoencoderBinary(InterfaceKWTA, TrainerAutoencoder):
         n_total = self.online['reconstruct-exact'].count
         self.monitor.plot_reconstruction_exact(n_exact=n_exact,
                                                n_total=n_total)
-        super()._epoch_finished(epoch, loss)
+        super()._epoch_finished(loss)
 
     def plot_autoencoder(self):
         batch = self.data_loader.sample()
