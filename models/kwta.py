@@ -154,7 +154,8 @@ class KWinnersTakeAllSoft(KWinnersTakeAll):
             self.threshold = None
         elif threshold_size is not None:
             self.sparsity = None
-            self.threshold = nn.Parameter(torch.randn(threshold_size))
+            self.threshold = nn.Linear(in_features=threshold_size,
+                                       out_features=1, bias=False)
         self.hardness = float(hardness)
 
     def forward(self, x):
@@ -169,7 +170,6 @@ class KWinnersTakeAllSoft(KWinnersTakeAll):
 
     def extra_repr(self):
         return f"{super().extra_repr()}, " \
-               f"threshold.shape={self.threshold_size}, " \
                f"hardness={self.hardness}".lstrip(', ')
 
 
