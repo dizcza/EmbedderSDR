@@ -1,20 +1,23 @@
 import warnings
 from typing import Union, Optional
 
+import numpy as np
 import torch.nn as nn
 import torch.utils.data
 from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
 from torch.optim.optimizer import Optimizer
 
-from mighty.trainer import TrainerEmbedding, TrainerGrad
-from mighty.trainer.trainer import Trainer
+from mighty.trainer import TrainerEmbedding
 from mighty.trainer.mask import MaskTrainerIndex
+from mighty.trainer.trainer import Trainer
 from mighty.utils.common import find_layers, find_named_layers
 from mighty.utils.data import DataLoader
+from mighty.utils.hooks import get_layers_ordered
 from mighty.utils.prepare import prepare_eval
-from models.kwta import KWinnersTakeAllSoft, KWinnersTakeAll, SynapticScaling, SparsityPredictor
+from models.kwta import KWinnersTakeAllSoft, KWinnersTakeAll, \
+    SynapticScaling, SparsityPredictor
 from monitor.accuracy import AccuracyEmbeddingKWTA
-from monitor.monitor import MonitorEmbeddingKWTA, MonitorEmbedding
+from monitor.monitor import MonitorEmbeddingKWTA
 
 
 class KWTAScheduler:
@@ -77,8 +80,12 @@ class InterfaceKWTA(Trainer):
     def __init__(self, kwta_scheduler: Optional[KWTAScheduler] = None):
         self.watch_modules = self.watch_modules + (KWinnersTakeAll,
                                                    SynapticScaling)
-        kwta_layers = tuple(find_layers(self.model, KWinnersTakeAll))
-        if not kwta_layers:
+        input_sample = self.data_loader.sample()[0]
+        layers_ordered = get_layers_ordered(self.model, input_sample,
+                                            ignore_children=KWinnersTakeAll)
+        self.kwta_layers = tuple(layer for layer in layers_ordered
+                                 if isinstance(layer, KWinnersTakeAll))
+        if not self.has_kwta():
             warnings.warn(
                 "For models with no kWTA layer, use TrainerEmbedding")
             self.env_name = f"{self.env_name} no-kwta"
@@ -91,25 +98,27 @@ class InterfaceKWTA(Trainer):
                     "Setting AccuracyEmbeddingKWTA.sparsity to None, "
                     "because the model does not have kWTA layers.")
                 self.accuracy_measure.sparsity = None
-        elif len(kwta_layers) > 1:
-            raise ValueError("Only 1 kWTA layer per model is accepted.")
-        kwta = kwta_layers[0]
-        if getattr(kwta, "threshold", None) is not None:
+
+        kwta_soft = find_layers(self.model, KWinnersTakeAllSoft)
+        if any(kwta.threshold is not None for kwta in kwta_soft):
             # kwta-soft with a threshold
             self.env_name = f"{self.env_name} threshold"
+        if any(isinstance(kwta.sparsity, SparsityPredictor)
+               for kwta in kwta_soft):
+            self.env_name = f"{self.env_name} SparsityPredictor"
+
         self.kwta_scheduler = kwta_scheduler
         self._update_accuracy_state()
 
     def has_kwta(self) -> bool:
-        return any(find_layers(self.model, KWinnersTakeAll))
+        return len(self.kwta_layers) > 0
 
     def _update_accuracy_state(self):
         if not self.has_kwta() or not isinstance(self.accuracy_measure,
                                                  AccuracyEmbeddingKWTA):
             return
-        # only 1 kWTA per model is accepted
-        kwta_layer = next(find_layers(self.model, KWinnersTakeAll))
-        sparsity = kwta_layer.sparsity
+        kwta_last = self.kwta_layers[-1]
+        sparsity = kwta_last.sparsity
         if sparsity is None:
             # KWinnersTakeAllSoft with threshold
             # online['sparsity'].get_mean() returns None before the training
@@ -123,10 +132,20 @@ class InterfaceKWTA(Trainer):
             mutual_info=mutual_info,
             normalize_inverse=self.data_loader.normalize_inverse
         )
-        kwta_layer = next(find_layers(self.model, KWinnersTakeAll))
-        if isinstance(kwta_layer.sparsity, float):
-            # clusters sparsity will be the same
-            monitor.clusters_heatmap = MonitorEmbedding.clusters_heatmap
+
+        # hack Monitor clusters_heatmap() and update_sparsity() functions
+        sparsities = tuple(kwta.sparsity for kwta in self.kwta_layers)
+        if all(isinstance(sparsity, float) for sparsity in sparsities):
+            # the sparsity of centroids (per class) is the same, don't plot
+            monitor.clusters_heatmap = super(
+                MonitorEmbeddingKWTA, monitor).clusters_heatmap
+            sparsities = set(sparsities)
+            if len(sparsities) == 1:
+                sparsity = next(iter(sparsities))
+                if np.isclose(sparsity, self.kwta_scheduler.min_sparsity):
+                    # sparsity is not going to change, do nothing
+                    monitor.update_sparsity = lambda *args: None
+
         return monitor
 
     def monitor_functions(self):
@@ -189,11 +208,13 @@ class InterfaceKWTA(Trainer):
                 ytype='log',
             ))
 
-        _, kwta = kwta_named_layers[0]
-        if self.kwta_scheduler.min_sparsity != kwta.sparsity:
+        if any(self.kwta_scheduler.min_sparsity != kwta.sparsity
+               for _, kwta in kwta_named_layers):
             self.monitor.register_func(sparsity)
 
-        self.monitor.register_func(hardness)
+        if any(self.kwta_scheduler.max_hardness != kwta.hardness
+               for _, kwta in kwta_named_layers_soft):
+            self.monitor.register_func(hardness)
 
     def log_trainer(self):
         super().log_trainer()
@@ -245,7 +266,6 @@ class InterfaceKWTA(Trainer):
         return checkpoint_state
 
 
-
 class TrainerEmbeddingKWTA(InterfaceKWTA, TrainerEmbedding):
     """
     Trainer for neural networks with k-winners-take-all (kWTA) activation
@@ -264,12 +284,12 @@ class TrainerEmbeddingKWTA(InterfaceKWTA, TrainerEmbedding):
                  env_suffix='',
                  **kwargs):
         TrainerEmbedding.__init__(self, model=model,
-                         criterion=criterion,
-                         data_loader=data_loader,
-                         optimizer=optimizer,
-                         scheduler=scheduler,
-                         accuracy_measure=accuracy_measure,
-                         env_suffix=env_suffix,
-                         **kwargs)
+                                  criterion=criterion,
+                                  data_loader=data_loader,
+                                  optimizer=optimizer,
+                                  scheduler=scheduler,
+                                  accuracy_measure=accuracy_measure,
+                                  env_suffix=env_suffix,
+                                  **kwargs)
         self.kwta_scheduler = kwta_scheduler
         InterfaceKWTA.__init__(self, kwta_scheduler)
