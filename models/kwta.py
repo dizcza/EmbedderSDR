@@ -12,19 +12,31 @@ from utils.layers import SerializableModule
 
 
 class SparsityPredictor(nn.Module):
-    def __init__(self, in_features: int, max_sparsity: float, min_sparsity=0.001):
+    def __init__(self, in_features: Union[int, None, str],
+                 max_sparsity: float,
+                 min_sparsity=0.001):
         super().__init__()
         assert min_sparsity < max_sparsity
-        self.linear = nn.Linear(in_features, out_features=1, bias=False)
+        if in_features is None or in_features == "auto":
+            self.linear = None
+        else:
+            self.linear = nn.Linear(in_features, out_features=1, bias=False)
         self.max_sparsity = max_sparsity
         self.min_sparsity = min_sparsity
 
     def forward(self, x):
+        if self.linear is None:
+            self.linear = nn.Linear(x.shape[1], out_features=1, bias=False)
+            if torch.cuda.is_available():
+                self.linear = self.linear.cuda()
         sparsity = self.linear(x).sigmoid() * self.max_sparsity
         return sparsity.squeeze()
 
     def extra_repr(self):
-        return f"max_sparsity={self.max_sparsity}"
+        extra = f"max_sparsity={self.max_sparsity}"
+        if self.linear is None:
+            extra = f"{extra}, linear='auto'"
+        return extra
 
     def forward_threshold(self, x):
         assert x.ndimension() == 2, "Input tensor is assumed to be flattened"
@@ -130,6 +142,7 @@ class KWinnersTakeAll(nn.Module):
             return f"sparsity={self.sparsity:.3f}"
         return ''
 
+
 class KWinnersTakeAllSoft(KWinnersTakeAll):
     """
     Differentiable version of k-winners-take-all activation function.
@@ -138,7 +151,9 @@ class KWinnersTakeAllSoft(KWinnersTakeAll):
     Hardness defines how well sigmoid resembles sign function.
     """
 
-    def __init__(self, sparsity=None, threshold_size=None, hardness=1):
+    def __init__(self, sparsity=None,
+                 threshold_size: Union[int, None, str] = None,
+                 hardness=1):
         """
         :param sparsity: how many bits leave active
         :param hardness: exponent power in sigmoid function;
@@ -154,15 +169,26 @@ class KWinnersTakeAllSoft(KWinnersTakeAll):
             self.threshold = None
         elif threshold_size is not None:
             self.sparsity = None
-            self.threshold = nn.Linear(in_features=threshold_size,
-                                       out_features=1, bias=False)
+            if threshold_size == 'auto':
+                self.threshold = 'auto'
+            else:
+                self.threshold = nn.Linear(in_features=threshold_size,
+                                           out_features=1, bias=False).weight
         self.hardness = float(hardness)
 
     def forward(self, x):
         if self.threshold is None:
             threshold = get_kwta_threshold(x, self.sparsity)
         else:
-            threshold = self.threshold
+            if self.threshold == "auto":
+                in_features = x.numel() // x.shape[0]
+                self.threshold = nn.Linear(in_features,
+                                           out_features=1,
+                                           bias=False).weight
+                if torch.cuda.is_available():
+                    self.threshold = self.threshold.cuda()
+            shape = list(x.shape)[1:]
+            threshold = self.threshold.view(shape)
         if self.training:
             x_scaled = self.hardness * (x - threshold)
             return x_scaled.sigmoid()
@@ -170,6 +196,7 @@ class KWinnersTakeAllSoft(KWinnersTakeAll):
 
     def extra_repr(self):
         return f"{super().extra_repr()}, " \
+               f"threshold_size={self.threshold_size}, " \
                f"hardness={self.hardness}".lstrip(', ')
 
 
