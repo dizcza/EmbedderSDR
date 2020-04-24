@@ -14,7 +14,7 @@ from mighty.utils.common import input_from_batch, batch_to_cuda
 from mighty.utils.data import DataLoader
 from monitor.accuracy import AccuracyAutoencoderBinary
 from monitor.monitor import MonitorAutoencBinary
-from utils import dataset_sparsity
+from utils import dataset_mean
 from .kwta import InterfaceKWTA, KWTAScheduler
 
 
@@ -43,7 +43,7 @@ class TrainerAutoencoderBinary(InterfaceKWTA, TrainerAutoencoder):
 
         # the optimal threshold id; will be changed later
         self.thr_opt_id = len(self.reconstruct_thr) // 2
-        self.dataset_sparsity = dataset_sparsity(data_loader.dataset_cls)
+        self.dataset_sparsity = dataset_mean(data_loader)
 
     def _init_monitor(self, mutual_info) -> MonitorAutoencBinary:
         monitor = MonitorAutoencBinary(
@@ -97,8 +97,6 @@ class TrainerAutoencoderBinary(InterfaceKWTA, TrainerAutoencoder):
         batch = self.data_loader.sample()
         batch = batch_to_cuda(batch)
         input = input_from_batch(batch)
-        if torch.cuda.is_available():
-            input = input.cuda()
         mode_saved = self.model.training
         self.model.train(False)
         with torch.no_grad():
@@ -107,6 +105,6 @@ class TrainerAutoencoderBinary(InterfaceKWTA, TrainerAutoencoder):
             reconstructed = reconstructed.sigmoid()
 
         thr_lowest = self.reconstruct_thr[0, 0, self.thr_opt_id]
-        rec_binary = (reconstructed >= thr_lowest).type(torch.float32)
+        rec_binary = (reconstructed >= thr_lowest).float()
         self.monitor.plot_autoencoder_binary(input, reconstructed, rec_binary)
         self.model.train(mode_saved)

@@ -6,6 +6,7 @@ import torch.utils.data
 from mighty.monitor.var_online import MeanOnline
 from mighty.trainer.trainer import Trainer
 from mighty.utils.algebra import compute_psnr, compute_sparsity
+from mighty.utils.common import input_from_batch, batch_to_cuda
 from mighty.utils.data import DataLoader
 from mighty.utils.stub import OptimizerStub
 from .autoencoder import TrainerAutoencoderBinary
@@ -45,17 +46,18 @@ class TestMatchingPursuitParameters(TrainerAutoencoderBinary):
         psnr_online = MeanOnline()
         sparsity_online = MeanOnline()
         with torch.no_grad():
-            for inputs, labels in self.data_loader.eval(verbose=True):
+            for batch in self.data_loader.eval(verbose=True):
                 if use_cuda:
-                    inputs = inputs.cuda()
+                    batch = batch_to_cuda(batch)
+                input = input_from_batch(batch)
                 loss = []
                 psnr = []
                 sparsity = []
                 for bmp_param in self.bmp_params:
-                    outputs = self.model(inputs, bmp_param)
+                    outputs = self.model(input, bmp_param)
                     latent, reconstructed = outputs
-                    loss_lambd = self._get_loss(inputs, outputs, labels)
-                    psnr_lmdb = compute_psnr(inputs, reconstructed)
+                    loss_lambd = self._get_loss(batch, outputs)
+                    psnr_lmdb = compute_psnr(input, reconstructed)
                     sparsity_lambd = compute_sparsity(latent)
                     loss.append(loss_lambd.cpu())
                     psnr.append(psnr_lmdb.cpu())

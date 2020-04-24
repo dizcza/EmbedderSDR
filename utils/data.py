@@ -7,18 +7,18 @@ from mighty.utils.common import input_from_batch
 from mighty.utils.data import DataLoader
 
 
-def dataset_sparsity(dataset_cls=MNIST, verbose=True):
+def dataset_mean(data_loader=DataLoader(MNIST), verbose=True):
     # L1 sparsity: ||x||_1 / size(x)
     #
     # MNIST:         0.131
     # FashionMNIST:  0.286
     # CIFAR10:       0.473
     # CIFAR100:      0.478
-    loader = DataLoader(dataset_cls).get(train=True)
+    loader = data_loader.get(train=True)
     sparsity_online = MeanOnline()
     for batch in tqdm(
             loader,
-            desc=f"Computing {dataset_cls.__name__} sparsity",
+            desc=f"Computing {data_loader.dataset_cls.__name__} mean",
             disable=not verbose,
             leave=False):
         input = input_from_batch(batch)
@@ -29,5 +29,5 @@ def dataset_sparsity(dataset_cls=MNIST, verbose=True):
 
 
 if __name__ == '__main__':
-    sparsity = dataset_sparsity(MNIST)
+    sparsity = dataset_mean(DataLoader(MNIST))
     print(f"Input L1 sparsity: {sparsity:.3f}")

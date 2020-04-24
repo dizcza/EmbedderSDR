@@ -136,9 +136,6 @@ class InterfaceKWTA(Trainer):
         # hack Monitor clusters_heatmap() and update_sparsity() functions
         sparsities = tuple(kwta.sparsity for kwta in self.kwta_layers)
         if all(isinstance(sparsity, float) for sparsity in sparsities):
-            # the sparsity of centroids (per class) is the same, don't plot
-            monitor.clusters_heatmap = super(
-                MonitorEmbeddingKWTA, monitor).clusters_heatmap
             sparsities = set(sparsities)
             if len(sparsities) == 1:
                 sparsity = next(iter(sparsities))

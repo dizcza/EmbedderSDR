@@ -9,7 +9,6 @@ from tqdm import tqdm
 from mighty.monitor.var_online import VarianceOnline
 from mighty.utils.constants import DATA_DIR
 from mighty.utils.data import DataLoader
-from utils import dataset_sparsity
 
 
 def dataset_entropy(dataset_cls=MNIST):
@@ -48,9 +47,3 @@ def check_normalized_mnist():
             var_online.update(new_tensor=image)
     mean, std = var_online.get_mean_std()
     print(f"mean={mean.mean()}, std={std.mean()}")
-
-
-
-if __name__ == '__main__':
-    sparsity = dataset_sparsity(MNIST)
-    print(f"Input L1 sparsity: {sparsity:.3f}")
