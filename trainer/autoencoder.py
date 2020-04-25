@@ -39,6 +39,8 @@ class TrainerAutoencoderBinary(InterfaceKWTA, TrainerAutoencoder):
         if reconstruct_threshold is None:
             reconstruct_threshold = torch.linspace(0., 0.95, steps=10,
                                                    dtype=torch.float32)
+        if torch.cuda.is_available():
+            reconstruct_threshold = reconstruct_threshold.cuda()
         self.reconstruct_thr = reconstruct_threshold.view(1, 1, -1)
 
         # the optimal threshold id; will be changed later

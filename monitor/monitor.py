@@ -53,8 +53,8 @@ class MonitorAutoencBinary(MonitorEmbeddingKWTA, MonitorAutoenc):
                                   height=None,
                                   ))
 
-    def plot_reconstruction_exact(self, n_exact, n_total):
-        title = "Reconstruction exact"
+    def plot_reconstruction_exact(self, n_exact, n_total, mode='train'):
+        title = f"Reconstruction exact {mode}"
         self.viz.line_update([n_exact, n_total], opts=dict(
             title=title,
             xlabel="Epoch",
