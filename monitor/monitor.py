@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.utils.data
 
@@ -54,10 +55,11 @@ class MonitorAutoencBinary(MonitorEmbeddingKWTA, MonitorAutoenc):
                                   ))
 
     def plot_reconstruction_exact(self, n_exact, n_total, mode='train'):
-        title = f"Reconstruction exact {mode}"
-        self.viz.line_update([n_exact, n_total], opts=dict(
-            title=title,
-            xlabel="Epoch",
-            ylabel="num. of exactly reconstructed",
-            legend=["exact", "#samples"],
-        ))
+        for name, val in ((f"exact-{mode}", n_exact), (f"#{mode}", n_total)):
+            dash = 'solid' if 'exact' in name else 'dash'
+            self.viz.line_update(val, opts=dict(
+                title="Reconstruction exact",
+                xlabel="Epoch",
+                ylabel="num. of exactly reconstructed",
+                dash=np.array([dash]),
+            ), name=name)
