@@ -61,7 +61,10 @@ class TrainerAutoencoderBinary(InterfaceKWTA, TrainerAutoencoder):
         online['reconstruct-exact'] = SumOnlineBatch()
         return online
 
-    def _on_forward_pass_batch(self, batch, output):
+    def _on_forward_pass_batch(self, batch, output, train):
+        if not train:
+            super()._on_forward_pass_batch(batch, output, train)
+            return
         input = input_from_batch(batch)
         latent, reconstructed = output
         if isinstance(self.criterion, nn.BCEWithLogitsLoss):
@@ -81,7 +84,7 @@ class TrainerAutoencoderBinary(InterfaceKWTA, TrainerAutoencoder):
         correct = pix_miss[:, self.thr_opt_id] == 0
         self.online['reconstruct-exact'].update(correct.cpu())
 
-        super()._on_forward_pass_batch(batch, output)
+        super()._on_forward_pass_batch(batch, output, train)
 
     def _epoch_finished(self, loss):
         self.thr_opt_id = self.online['pixel-error'].get_mean().argmin()
