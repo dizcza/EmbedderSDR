@@ -1,4 +1,5 @@
 from typing import Union, Optional
+import warnings
 
 import torch
 import torch.nn as nn
@@ -70,11 +71,15 @@ class TrainerAutoencoderBinary(InterfaceKWTA, TrainerAutoencoder):
         if isinstance(self.criterion, nn.BCEWithLogitsLoss):
             reconstructed = reconstructed.sigmoid()
 
+        if self.data_loader.normalize_inverse is not None:
+            warnings.warn("'normalize_inverse' is not None. Applying it "
+                          "to count reconstructed pixels")
+            input = self.data_loader.normalize_inverse(input)
+            reconstructed = self.data_loader.normalize_inverse(reconstructed)
+
         # update pixel error
         rec_flatten = reconstructed.view(reconstructed.shape[0], -1, 1)
         rec_binary = rec_flatten >= self.reconstruct_thr  # (B, In, THR)
-        if self.data_loader.normalize_inverse is not None:
-            input = self.data_loader.normalize_inverse(input)
         input_binary = input > self.dataset_sparsity
         input_binary = input_binary.view(input.shape[0], -1, 1)  # (B, In, 1)
         pix_miss = (rec_binary ^ input_binary).sum(dim=1, dtype=torch.float32)
@@ -98,18 +103,8 @@ class TrainerAutoencoderBinary(InterfaceKWTA, TrainerAutoencoder):
                                                n_total=n_total)
         super()._epoch_finished(loss)
 
-    def plot_autoencoder(self):
-        batch = self.data_loader.sample()
-        batch = batch_to_cuda(batch)
+    def _plot_autoencoder(self, batch, reconstructed):
         input = input_from_batch(batch)
-        mode_saved = self.model.training
-        self.model.train(False)
-        with torch.no_grad():
-            latent, reconstructed = self._forward(batch)
-        if isinstance(self.criterion, nn.BCEWithLogitsLoss):
-            reconstructed = reconstructed.sigmoid()
-
         thr_lowest = self.reconstruct_thr[0, 0, self.thr_opt_id]
         rec_binary = (reconstructed >= thr_lowest).float()
         self.monitor.plot_autoencoder_binary(input, reconstructed, rec_binary)
-        self.model.train(mode_saved)
