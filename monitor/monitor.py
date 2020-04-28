@@ -54,9 +54,12 @@ class MonitorAutoencBinary(MonitorEmbeddingKWTA, MonitorAutoenc):
                                   height=None,
                                   ))
 
-    def plot_reconstruction_exact(self, n_exact, n_total, mode='train'):
-        for name, val in ((f"exact-{mode}", n_exact), (f"#{mode}", n_total)):
-            dash = 'solid' if 'exact' in name else 'dash'
+    def plot_reconstruction_exact(self, n_exact, n_total=None, mode='train'):
+        named_metric = [(mode, n_exact)]
+        if n_total is not None:
+            named_metric.append((f"#total-{mode}", n_total))
+        for name, val in named_metric:
+            dash = 'solid' if 'total' not in name else 'dash'
             self.viz.line_update(val, opts=dict(
                 title="Reconstruction exact",
                 xlabel="Epoch",

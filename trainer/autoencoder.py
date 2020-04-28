@@ -59,13 +59,16 @@ class TrainerAutoencoderBinary(InterfaceKWTA, TrainerAutoencoder):
     def _init_online_measures(self):
         online = super()._init_online_measures()
         online['pixel-error'] = MeanOnlineBatch()
-        online['reconstruct-exact'] = SumOnlineBatch()
+        online['reconstruct-exact-train'] = SumOnlineBatch()
+        online['reconstruct-exact-test'] = SumOnlineBatch()
         return online
 
+    def log_trainer(self):
+        super().log_trainer()
+        self.monitor.log(f"Dataset sparsity: "
+                         f"{self.dataset_sparsity.item():.4f}")
+
     def _on_forward_pass_batch(self, batch, output, train):
-        if not train:
-            super()._on_forward_pass_batch(batch, output, train)
-            return
         input = input_from_batch(batch)
         latent, reconstructed = output
         if isinstance(self.criterion, nn.BCEWithLogitsLoss):
@@ -83,11 +86,14 @@ class TrainerAutoencoderBinary(InterfaceKWTA, TrainerAutoencoder):
         input_binary = input > self.dataset_sparsity
         input_binary = input_binary.view(input.shape[0], -1, 1)  # (B, In, 1)
         pix_miss = (rec_binary ^ input_binary).sum(dim=1, dtype=torch.float32)
-        # pix_miss is of shape (B, THR)
-        self.online['pixel-error'].update(pix_miss.cpu())
+        if train:
+            # update only for train
+            # pix_miss is of shape (B, THR)
+            self.online['pixel-error'].update(pix_miss.cpu())
 
         correct = pix_miss[:, self.thr_opt_id] == 0
-        self.online['reconstruct-exact'].update(correct.cpu())
+        fold = 'train' if train else 'test'
+        self.online[f'reconstruct-exact-{fold}'].update(correct.cpu())
 
         super()._on_forward_pass_batch(batch, output, train)
 
@@ -97,10 +103,12 @@ class TrainerAutoencoderBinary(InterfaceKWTA, TrainerAutoencoder):
             self.online['pixel-error'].get_mean(),
             self.reconstruct_thr.squeeze()
         )
-        n_exact = self.online['reconstruct-exact'].get_sum()
-        n_total = self.online['reconstruct-exact'].count
-        self.monitor.plot_reconstruction_exact(n_exact=n_exact,
-                                               n_total=n_total)
+        for fold in ('train', 'test'):
+            n_exact = self.online[f'reconstruct-exact-{fold}'].get_sum()
+            n_total = self.online[f'reconstruct-exact-{fold}'].count
+            self.monitor.plot_reconstruction_exact(n_exact=n_exact,
+                                                   n_total=n_total,
+                                                   mode=fold)
         super()._epoch_finished(loss)
 
     def _plot_autoencoder(self, batch, reconstructed):
