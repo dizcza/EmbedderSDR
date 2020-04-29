@@ -257,7 +257,9 @@ class InterfaceKWTA(Trainer):
 
     def restore(self, checkpoint_path=None, strict=True):
         checkpoint_state = super().restore(checkpoint_path, strict=strict)
-        if self.has_kwta() and checkpoint_state is not None:
+        if self.has_kwta() \
+                and self.kwta_scheduler is not None \
+                and checkpoint_state is not None:
             kwta_scheduler = checkpoint_state.get('kwta_scheduler', None)
             self.kwta_scheduler.load_state_dict(kwta_scheduler)
         return checkpoint_state
