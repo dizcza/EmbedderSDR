@@ -10,9 +10,8 @@ from torch.optim.optimizer import Optimizer
 from mighty.trainer import TrainerEmbedding
 from mighty.trainer.mask import MaskTrainerIndex
 from mighty.trainer.trainer import Trainer
-from mighty.utils.common import find_layers, find_named_layers
+from mighty.utils.common import find_layers, find_named_layers, batch_to_cuda
 from mighty.utils.data import DataLoader
-from mighty.utils.hooks import get_layers_ordered
 from mighty.utils.prepare import prepare_eval
 from models.kwta import KWinnersTakeAllSoft, KWinnersTakeAll, \
     SynapticScaling, SparsityPredictor
@@ -80,9 +79,8 @@ class InterfaceKWTA(Trainer):
     def __init__(self, kwta_scheduler: Optional[KWTAScheduler] = None):
         self.watch_modules = self.watch_modules + (KWinnersTakeAll,
                                                    SynapticScaling)
-        input_sample = self.data_loader.sample()[0]
-        layers_ordered = get_layers_ordered(self.model, input_sample,
-                                            ignore_children=KWinnersTakeAll)
+        layers_ordered = self.get_layers_ordered(
+            ignore_children=KWinnersTakeAll)
         self.kwta_layers = tuple(layer for layer in layers_ordered
                                  if isinstance(layer, KWinnersTakeAll))
         if not self.has_kwta():
@@ -112,6 +110,38 @@ class InterfaceKWTA(Trainer):
 
     def has_kwta(self) -> bool:
         return len(self.kwta_layers) > 0
+
+    def get_layers_ordered(self, ignore_layers=(nn.Sequential,),
+                           ignore_children=()):
+        ignore_layers = ignore_layers + (type(self.model),)
+        hooks = []
+        layers_ordered = []
+
+        def register_hooks(a_model: nn.Module):
+            children = tuple(a_model.children())
+            if any(children) and not isinstance(a_model, ignore_children):
+                for layer in children:
+                    register_hooks(layer)
+            if not isinstance(a_model, ignore_layers):
+                handle = a_model.register_forward_pre_hook(append_layer)
+                hooks.append(handle)
+
+        def append_layer(layer, tensor_input):
+            layers_ordered.append(layer)
+
+        register_hooks(self.model)
+
+        batch = self.data_loader.sample()
+        batch = batch_to_cuda(batch)
+        with torch.no_grad():
+            # start hooking
+            self._forward(batch)
+            # end hooking
+
+        for handle in hooks:
+            handle.remove()
+
+        return layers_ordered
 
     def _update_accuracy_state(self):
         if not self.has_kwta() or not isinstance(self.accuracy_measure,
