@@ -7,7 +7,7 @@ from mighty.utils.common import input_from_batch
 from mighty.utils.data import DataLoader
 
 
-def dataset_mean(data_loader=DataLoader(MNIST), verbose=True):
+def dataset_mean(data_loader: DataLoader, verbose=True):
     # L1 sparsity: ||x||_1 / size(x)
     #
     # MNIST:         0.131
