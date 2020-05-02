@@ -97,13 +97,13 @@ class InterfaceKWTA(Trainer):
                     "because the model does not have kWTA layers.")
                 self.accuracy_measure.sparsity = None
 
-        kwta_soft = find_layers(self.model, KWinnersTakeAllSoft)
+        kwta_soft = tuple(find_layers(self.model, KWinnersTakeAllSoft))
         if any(kwta.threshold is not None for kwta in kwta_soft):
             # kwta-soft with a threshold
             self.env_name = f"{self.env_name} threshold"
         if any(isinstance(kwta.sparsity, SparsityPredictor)
                for kwta in kwta_soft):
-            self.env_name = f"{self.env_name} SparsityPredictor"
+            self.env_name = f"{self.env_name} sparsity-predictor"
 
         self.kwta_scheduler = kwta_scheduler
         self._update_accuracy_state()
