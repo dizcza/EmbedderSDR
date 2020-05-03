@@ -83,6 +83,7 @@ class InterfaceKWTA(Trainer):
             ignore_children=KWinnersTakeAll)
         self.kwta_layers = tuple(layer for layer in layers_ordered
                                  if isinstance(layer, KWinnersTakeAll))
+        # self.kwta_layers = tuple(find_layers(self.model, KWinnersTakeAll))
         if not self.has_kwta():
             warnings.warn(
                 "For models with no kWTA layer, use TrainerEmbedding")

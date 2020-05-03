@@ -33,26 +33,17 @@ class MonitorEmbeddingKWTA(MonitorEmbedding):
 class MonitorAutoencBinary(MonitorEmbeddingKWTA, MonitorAutoenc):
 
     def plot_autoencoder_binary(self, images, reconstructed,
-                                reconstructed_binary, n_show=10):
-        if images.shape != reconstructed.shape:
-            raise ValueError("Input & reconstructed image shapes differ")
-        n_show = min(images.shape[0], n_show)
-        images = images[: n_show]
-        reconstructed = reconstructed[: n_show]
-        reconstructed_binary = reconstructed_binary[: n_show]
-        if self.normalize_inverse is not None:
+                                reconstructed_binary, *tensors, labels=(),
+                                normalize_inverse=True, n_show=10):
+        labels = ['Reconstructed binary', *labels]
+        if normalize_inverse and self.normalize_inverse is not None:
             images = self.normalize_inverse(images)
             reconstructed = self.normalize_inverse(reconstructed)
+            tensors = map(self.normalize_inverse, tensors)
             # reconstructed_binary is already in [0, 1] range
-        images_stacked = torch.cat(
-            [images, reconstructed, reconstructed_binary], dim=0)
-        images_stacked.clamp_(0, 1)
-        self.viz.images(images_stacked, nrow=n_show, win='autoencoder',
-                        opts=dict(title="Original (Top) | Reconstructed "
-                                        "| Reconstructed binary",
-                                  width=1000,
-                                  height=None,
-                                  ))
+        self.plot_autoencoder(images, reconstructed, reconstructed_binary,
+                              *tensors, labels=labels, normalize_inverse=False,
+                              n_show=n_show)
 
     def plot_reconstruction_exact(self, n_exact, n_total=None, mode='train'):
         if n_total is not None:
