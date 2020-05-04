@@ -111,8 +111,9 @@ class TrainerAutoencoderBinary(InterfaceKWTA, TrainerAutoencoder):
                                                    mode=fold)
         super()._epoch_finished(loss)
 
-    def _plot_autoencoder(self, batch, reconstructed):
+    def _plot_autoencoder(self, batch, reconstructed, mode='train'):
         input = input_from_batch(batch)
         thr_lowest = self.reconstruct_thr[0, 0, self.thr_opt_id]
         rec_binary = (reconstructed >= thr_lowest).float()
-        self.monitor.plot_autoencoder_binary(input, reconstructed, rec_binary)
+        self.monitor.plot_autoencoder_binary(input, reconstructed, rec_binary,
+                                             mode=mode)

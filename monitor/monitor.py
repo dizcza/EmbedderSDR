@@ -34,7 +34,8 @@ class MonitorAutoencBinary(MonitorEmbeddingKWTA, MonitorAutoenc):
 
     def plot_autoencoder_binary(self, images, reconstructed,
                                 reconstructed_binary, *tensors, labels=(),
-                                normalize_inverse=True, n_show=10):
+                                normalize_inverse=True, n_show=10,
+                                mode='train'):
         labels = ['Reconstructed binary', *labels]
         if normalize_inverse and self.normalize_inverse is not None:
             images = self.normalize_inverse(images)
@@ -43,7 +44,7 @@ class MonitorAutoencBinary(MonitorEmbeddingKWTA, MonitorAutoenc):
             # reconstructed_binary is already in [0, 1] range
         self.plot_autoencoder(images, reconstructed, reconstructed_binary,
                               *tensors, labels=labels, normalize_inverse=False,
-                              n_show=n_show)
+                              n_show=n_show, mode=mode)
 
     def plot_reconstruction_exact(self, n_exact, n_total=None, mode='train'):
         if n_total is not None:
