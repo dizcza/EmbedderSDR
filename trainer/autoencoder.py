@@ -106,10 +106,19 @@ class TrainerAutoencoderBinary(InterfaceKWTA, TrainerAutoencoder):
         for fold in ('train', 'test'):
             n_exact = self.online[f'reconstruct-exact-{fold}'].get_sum()
             n_total = self.online[f'reconstruct-exact-{fold}'].count
+            if fold == 'train':
+                accuracy = n_exact / float(n_total)
+                self.update_best_score(accuracy,
+                                       score_type='accuracy autoencoder')
             self.monitor.plot_reconstruction_exact(n_exact=n_exact,
                                                    n_total=n_total,
                                                    mode=fold)
         super()._epoch_finished(loss)
+
+    def update_best_score(self, score, score_type=''):
+        if score_type == 'accuracy autoencoder' and score > self.best_score:
+            self.best_score = score
+            self.save(best=True)
 
     def _plot_autoencoder(self, batch, reconstructed, mode='train'):
         input = input_from_batch(batch)

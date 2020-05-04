@@ -49,7 +49,12 @@ class MonitorAutoencBinary(MonitorEmbeddingKWTA, MonitorAutoenc):
     def plot_reconstruction_exact(self, n_exact, n_total=None, mode='train'):
         if n_total is not None:
             accuracy = n_exact / float(n_total)
-            self.update_accuracy(accuracy=accuracy, mode=mode)
+            self.viz.line_update(accuracy, opts=dict(
+                xlabel='Epoch',
+                ylabel='Accuracy',
+                title=f'Accuracy AutoEncoder'
+            ), name=mode)
+
         named_metric = [(mode, n_exact)]
         if n_total is not None:
             named_metric.append((f"#total-{mode}", n_total))
