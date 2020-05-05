@@ -202,16 +202,18 @@ class KWinnersTakeAllSoft(KWinnersTakeAll):
 
 class SynapticScaling(SerializableModule):
     """
-    Wrapper for KWTA to account synaptic scaling plasticity.
+    Wrapper for KWTA to account for synaptic scaling plasticity (also called
+    the boost factor).
     """
 
-    state_attr = ['firing_rate']
+    state_attr = ['firing_rate', 'boost_factor', 'target_sparsity']
 
-    def __init__(self, kwta_layer: KWinnersTakeAll, synaptic_scale=1.0):
+    def __init__(self, kwta_layer: KWinnersTakeAll, boost_factor=1.0,
+                 target_sparsity=0.):
         super().__init__()
         self.kwta = kwta_layer
-        self.register_buffer("synaptic_scale", torch.tensor(
-            float(synaptic_scale), dtype=torch.float32))
+        self.boost_factor = float(boost_factor)
+        self.target_sparsity = target_sparsity
         self.firing_rate = MeanOnlineBatch()
 
     @property
@@ -224,11 +226,12 @@ class SynapticScaling(SerializableModule):
             return self.kwta(x)
         frequency = self.firing_rate.get_mean()
         if frequency is not None:
-            scale = torch.exp(-self.synaptic_scale * frequency)
-            x = x * scale
+            logscale = self.boost_factor * (self.target_sparsity - frequency)
+            x = x * torch.exp(logscale)
         x = self.kwta(x)
         self.firing_rate.update(x.detach())
         return x
 
     def extra_repr(self):
-        return f"synaptic_scale={self.synaptic_scale:.3f}"
+        return f"boost_factor={self.boost_factor:.3f}, " \
+               f"target_sparsity={self.target_sparsity}"
