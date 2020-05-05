@@ -1,10 +1,11 @@
-import warnings
-
 import math
+import warnings
+from typing import Union
+
 import torch
 import torch.distributions
 import torch.nn as nn
-from typing import Union
+import torch.nn.functional as F
 
 from mighty.monitor.var_online import MeanOnlineBatch
 from utils.constants import SPARSITY
@@ -49,7 +50,7 @@ class SparsityPredictor(nn.Module):
         return threshold
 
 
-def get_kwta_threshold(tensor: torch.FloatTensor,
+def get_kwta_threshold(tensor: torch.Tensor,
                        sparsity: Union[float, SparsityPredictor]):
     """
     Returns the threshold for kWTA activation function as if input tensor is a linear (batch x embedding_dim).
@@ -72,8 +73,8 @@ def get_kwta_threshold(tensor: torch.FloatTensor,
             warnings.warn(f"kWTA cardinality {sparsity} is too high. "
                           f"Making 1 element equals zero.")
             k_active -= 1
-        x_sorted, argsort = tensor.sort(dim=1, descending=True)
-        threshold = x_sorted[:, [k_active - 1, k_active]].mean(dim=1)
+        topk = tensor.topk(k_active + 1, dim=1).values
+        threshold = topk[:, [-2, -1]].mean(dim=1)
     threshold = threshold.view(-1, *unsqueeze_dim)
     return threshold
 
@@ -130,7 +131,7 @@ class KWinnersTakeAll(nn.Module):
         super().__init__()
         self.sparsity = sparsity
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor):
         assert self.sparsity is not None, "Set the sparsity during the init"
         x = KWinnersTakeAllFunction.apply(x, self.sparsity)
         return x
@@ -153,7 +154,7 @@ class KWinnersTakeAllSoft(KWinnersTakeAll):
 
     def __init__(self, sparsity=None,
                  threshold_size: Union[int, None, str] = None,
-                 hardness=1):
+                 hardness=1, hard=True):
         """
         :param sparsity: how many bits leave active
         :param hardness: exponent power in sigmoid function;
@@ -175,8 +176,9 @@ class KWinnersTakeAllSoft(KWinnersTakeAll):
                 self.threshold = nn.Linear(in_features=threshold_size,
                                            out_features=1, bias=False).weight
         self.hardness = float(hardness)
+        self.hard = hard
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor):
         if self.threshold is None:
             threshold = get_kwta_threshold(x, self.sparsity)
         else:
@@ -191,6 +193,8 @@ class KWinnersTakeAllSoft(KWinnersTakeAll):
             threshold = self.threshold.view(shape)
         if self.training:
             x_scaled = self.hardness * (x - threshold)
+            if self.hard:
+                return F.hardsigmoid(x_scaled, inplace=True)
             return x_scaled.sigmoid()
         return KWinnersTakeAllThresholdFunction.apply(x, threshold)
 
@@ -220,7 +224,7 @@ class SynapticScaling(SerializableModule):
     def sparsity(self):
         return self.kwta.sparsity
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor):
         if not self.training:
             # don't update firing rate on test
             return self.kwta(x)
