@@ -19,6 +19,54 @@ from utils import dataset_mean
 from .kwta import InterfaceKWTA, KWTAScheduler
 
 
+class Reconstruct:
+    def __init__(self, threshold=None, dataset_mean=0.):
+        if threshold is None:
+            threshold = torch.linspace(0., 0.95, steps=10, dtype=torch.float32)
+        if torch.cuda.is_available():
+            threshold = threshold.cuda()
+        self.threshold = threshold.view(1, 1, -1)
+        self.dataset_mean = dataset_mean
+        self.is_fixed = False
+        self.optimal_id = len(self.threshold) // 2
+
+    def __repr__(self):
+        fixed_thr = self.threshold[self.optimal_id] if self.is_fixed else None
+        return f"{self.__class__.__name__}(dataset_mean={self.dataset_mean}" \
+               f", fixed_threshold={fixed_thr})"
+
+    @property
+    def threshold_lowest(self):
+        return self.threshold.squeeze()[self.optimal_id]
+
+    def fix_threshold(self, new_threshold: float):
+        self.is_fixed = True
+        thresholds = set(self.threshold.squeeze().tolist())
+        thresholds.add(new_threshold)
+        thresholds = sorted(thresholds)
+        self.threshold = torch.tensor(thresholds, device=self.threshold.device)
+        self.optimal_id = thresholds.index(new_threshold)
+
+    def compute(self, input: torch.Tensor, reconstructed: torch.Tensor):
+        # input and reconstructed are of shape (B, C, H, W)
+        if input.ndim == 3:
+            input = input.unsqueeze(dim=0)
+            reconstructed = reconstructed.unsqueeze(dim=0)
+        # update pixel error
+        rec_flatten = reconstructed.view(reconstructed.shape[0], -1, 1)
+        rec_binary = rec_flatten >= self.threshold # (B, In, THR)
+        input_binary = input > self.dataset_mean
+        input_binary = input_binary.view(input.shape[0], -1, 1)  # (B, In, 1)
+        # (B, THR)
+        pix_miss = (rec_binary ^ input_binary).sum(dim=1, dtype=torch.float32)
+        correct = pix_miss[:, self.optimal_id] == 0  # (B,)
+        return pix_miss, correct
+
+    def update(self, pixel_error: torch.Tensor):
+        if not self.is_fixed:
+            self.optimal_id = pixel_error.argmin()
+
+
 class TrainerAutoencoderBinary(InterfaceKWTA, TrainerAutoencoder):
 
     def __init__(self, model: nn.Module, criterion: nn.Module,
@@ -37,16 +85,8 @@ class TrainerAutoencoderBinary(InterfaceKWTA, TrainerAutoencoder):
                                       accuracy_measure=accuracy_measure,
                                       **kwargs)
         InterfaceKWTA.__init__(self, kwta_scheduler)
-        if reconstruct_threshold is None:
-            reconstruct_threshold = torch.linspace(0., 0.95, steps=10,
-                                                   dtype=torch.float32)
-        if torch.cuda.is_available():
-            reconstruct_threshold = reconstruct_threshold.cuda()
-        self.reconstruct_thr = reconstruct_threshold.view(1, 1, -1)
-
-        # the optimal threshold id; will be changed later
-        self.thr_opt_id = len(self.reconstruct_thr) // 2
-        self.dataset_sparsity = dataset_mean(data_loader)
+        self.reconstruct = Reconstruct(reconstruct_threshold,
+                                       dataset_mean(data_loader))
 
     def _init_monitor(self, mutual_info) -> MonitorAutoencBinary:
         monitor = MonitorAutoencBinary(
@@ -63,10 +103,12 @@ class TrainerAutoencoderBinary(InterfaceKWTA, TrainerAutoencoder):
         online['reconstruct-exact-test'] = SumOnlineBatch()
         return online
 
+    def fix_reconstruct_threshold(self, new_threshold):
+        self.reconstruct.fix_threshold(new_threshold)
+
     def log_trainer(self):
         super().log_trainer()
-        self.monitor.log(f"Dataset sparsity: "
-                         f"{self.dataset_sparsity.item():.4f}")
+        self.monitor.log(self.reconstruct)
 
     def _on_forward_pass_batch(self, batch, output, train):
         input = input_from_batch(batch)
@@ -80,28 +122,23 @@ class TrainerAutoencoderBinary(InterfaceKWTA, TrainerAutoencoder):
             input = self.data_loader.normalize_inverse(input)
             reconstructed = self.data_loader.normalize_inverse(reconstructed)
 
-        # update pixel error
-        rec_flatten = reconstructed.view(reconstructed.shape[0], -1, 1)
-        rec_binary = rec_flatten >= self.reconstruct_thr  # (B, In, THR)
-        input_binary = input > self.dataset_sparsity
-        input_binary = input_binary.view(input.shape[0], -1, 1)  # (B, In, 1)
-        pix_miss = (rec_binary ^ input_binary).sum(dim=1, dtype=torch.float32)
+        pix_miss, correct = self.reconstruct.compute(input, reconstructed)
         if train:
             # update only for train
             # pix_miss is of shape (B, THR)
             self.online['pixel-error'].update(pix_miss.cpu())
 
-        correct = pix_miss[:, self.thr_opt_id] == 0
         fold = 'train' if train else 'test'
         self.online[f'reconstruct-exact-{fold}'].update(correct.cpu())
 
         super()._on_forward_pass_batch(batch, output, train)
 
     def _epoch_finished(self, loss):
-        self.thr_opt_id = self.online['pixel-error'].get_mean().argmin()
+        self.reconstruct.update(self.online['pixel-error'].get_mean())
         self.monitor.plot_reconstruction_error(
             self.online['pixel-error'].get_mean(),
-            self.reconstruct_thr.squeeze()
+            self.reconstruct.threshold.squeeze(),
+            self.reconstruct.optimal_id
         )
         for fold in ('train', 'test'):
             n_exact = self.online[f'reconstruct-exact-{fold}'].get_sum()
@@ -122,7 +159,7 @@ class TrainerAutoencoderBinary(InterfaceKWTA, TrainerAutoencoder):
 
     def _plot_autoencoder(self, batch, reconstructed, mode='train'):
         input = input_from_batch(batch)
-        thr_lowest = self.reconstruct_thr[0, 0, self.thr_opt_id]
+        thr_lowest = self.reconstruct.threshold_lowest
         rec_binary = (reconstructed >= thr_lowest).float()
         self.monitor.plot_autoencoder_binary(input, reconstructed, rec_binary,
                                              mode=mode)
