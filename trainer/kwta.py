@@ -34,34 +34,44 @@ class KWTAScheduler:
         self.min_sparsity = min_sparsity
         self.gamma_hardness = gamma_hardness
         self.max_hardness = max_hardness
-        self.last_epoch = -1
+        self.epoch = 0
 
     def need_update(self):
-        return self.last_epoch % self.step_size == 0
+        return self.epoch > 0 and self.epoch % self.step_size == 0
 
-    def step(self):
-        self.last_epoch += 1
+    def step(self, epoch=None):
         updated = False
+        if epoch:
+            self.epoch = epoch
+        else:
+            # this function is called just _before_ the completion of an epoch
+            # in the _epoch_finished() function
+            self.epoch += 1
         if self.need_update():
+            exponent = self.epoch / self.step_size
             for layer in self.kwta_layers:
                 if isinstance(layer.sparsity, float):
-                    layer.sparsity = max(layer.sparsity * self.gamma_sparsity,
-                                         self.min_sparsity)
+                    layer.sparsity = max(
+                        layer.sparsity * self.gamma_sparsity ** exponent,
+                        self.min_sparsity
+                    )
                     updated |= layer.sparsity != self.min_sparsity
                 if isinstance(layer, KWinnersTakeAllSoft):
-                    layer.hardness = min(layer.hardness * self.gamma_hardness,
-                                         self.max_hardness)
+                    layer.hardness = min(
+                        layer.hardness * self.gamma_hardness ** exponent,
+                        self.max_hardness
+                    )
                     updated |= layer.hardness != self.max_hardness
         return updated
 
     def state_dict(self):
         return {
-            'last_epoch': self.last_epoch
+            'epoch': self.epoch
         }
 
     def load_state_dict(self, state_dict: dict):
         if state_dict is not None:
-            self.last_epoch = state_dict['last_epoch']
+            self.step(state_dict['epoch'])
 
     def extra_repr(self):
         return f"step_size={self.step_size}," \

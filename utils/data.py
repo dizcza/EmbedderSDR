@@ -14,7 +14,7 @@ def dataset_mean(data_loader: DataLoader, verbose=True):
     # FashionMNIST:  0.286
     # CIFAR10:       0.473
     # CIFAR100:      0.478
-    loader = data_loader.get(train=True)
+    loader = data_loader.eval()
     sparsity_online = MeanOnline()
     for batch in tqdm(
             loader,
