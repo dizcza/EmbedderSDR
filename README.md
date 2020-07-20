@@ -6,7 +6,7 @@ The goal of this project is gradient-free optimization by sparse vectors associa
 
 ### Sparse Distributed Representation
 
-Binary sparse distributed representations are formed with [k-winners-take-all](https://en.wikipedia.org/wiki/Winner-take-all_\(computing\)) activation function (kWTA), followed by a binarization. It replaces the last softmax layer in neural networks. kWTA layer implementation is [here](models/kwta.py).
+Binary sparse distributed representations are formed with [k-winners-take-all](https://en.wikipedia.org/wiki/Winner-take-all_\(computing\)) activation function (kWTA) and subsequent binarization. It replaces the last softmax layer in neural networks. kWTA layer implementation is [here](models/kwta.py).
 
 
 ### Ideas
@@ -57,3 +57,8 @@ On the right plot, kWTA's output forms binary sparse distributed representation,
 To reproduce the plots, call `train_kwta()` function in [`main.py`](main.py).
 
 For more results, go to [http://85.217.171.57:8097/](http://85.217.171.57:8097/). Give your browser a few minutes to parse the json data. Choose the environment with `TrainerGradKWTA` - this is the trainer with kWTA activation function.
+
+
+### Papers, used in the code
+
+This section is moved to https://github.com/dizcza/pytorch-mighty.

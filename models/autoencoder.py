@@ -5,7 +5,7 @@ import torch.nn as nn
 from models import KWinnersTakeAll
 
 
-class AutoEncoderLinear(nn.Module):
+class AutoencoderLinearKWTA(nn.Module):
     def __init__(self,
                  input_dim: Union[int, Iterable[int]],
                  encoding_dim: int,
@@ -39,14 +39,14 @@ class AutoEncoderLinear(nn.Module):
         return encoded, decoded
 
 
-class AutoEncoderLinearTanh(AutoEncoderLinear):
+class AutoencoderLinearKWTATanh(AutoencoderLinearKWTA):
     def forward(self, x):
         encoded, decoded = super().forward(x)
         decoded = decoded.tanh()
         return encoded, decoded
 
 
-class AutoEncoderConv(nn.Module):
+class AutoencoderConvKWTA(nn.Module):
     def __init__(self, input_dim: int, encoding_dim: int,
                  kwta: KWinnersTakeAll = None):
         super().__init__()

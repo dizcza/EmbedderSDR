@@ -58,9 +58,9 @@ def train_grad(n_epoch=30, dataset_cls=MNIST):
 def train_autoenc(n_epoch=60, dataset_cls=MNIST):
     kwta = KWinnersTakeAllSoft(hardness=2, sparsity=0.05)
     # kwta = SynapticScaling(kwta, synaptic_scale=3.0)
-    model = AutoEncoderLinear(input_dim=784, encoding_dim=256, kwta=kwta)
+    model = AutoencoderLinearKWTA(input_dim=784, encoding_dim=256, kwta=kwta)
     # model = MLP(784, 128, 64)
-    if isinstance(model, AutoEncoderLinearTanh):
+    if isinstance(model, AutoencoderLinearKWTATanh):
         # normalize in range [-1, 1]
         normalize = transforms.Normalize(mean=(0.5,), std=(0.5,))
         criterion = nn.MSELoss()
@@ -92,6 +92,7 @@ def train_autoenc(n_epoch=60, dataset_cls=MNIST):
 
 
 def test_matching_pursuit_lambdas(dataset_cls=MNIST):
+    # TODO move to a separate repo
     model = MatchingPursuit(784, 2048)
     data_loader = DataLoader(dataset_cls,
                              transform=TransformDefault.mnist(
@@ -143,25 +144,18 @@ def train_matching_pursuit(dataset_cls=MNIST):
 
 
 def train_kwta_autoenc(dataset_cls=MNIST):
-    embedding_size = 256
-    # kwta = KWinnersTakeAllSoft(threshold_size=embedding_size, hardness=2)
-    sparsity = SparsityPredictor(in_features=embedding_size, max_sparsity=0.03)
-    kwta = KWinnersTakeAllSoft(sparsity=sparsity, hardness=2)
-    # kwta = KWinnersTakeAllSoft(sparsity=0.05, hardness=2)
-    # model = MLP_kWTA_Autoenc(784, embedding_size, kwta)
-    # model = BinaryMatchingPursuit(784, embedding_size, kwta)
-    model = AutoEncoderLinear(784, embedding_size, kwta)
+    kwta = KWinnersTakeAllSoft(sparsity=0.05, hardness=2)
+    model = AutoencoderLinearKWTA(196, 2048, kwta)
+    transform = transforms.Compose([transforms.Resize(14),
+                                    transforms.ToTensor()])
     data_loader = DataLoader(dataset_cls,
-                             transform=TransformDefault.mnist(normalize=None),
-                             batch_size=256, eval_size=10000)
+                             transform=transform,
+                             eval_size=10000)
     criterion = nn.BCEWithLogitsLoss()
-    if kwta.sparsity is None:
-        # threshold is used
-        criterion = LossPenalty(criterion, lambd=0.002, latent_grad=True)
     optimizer, scheduler = get_optimizer_scheduler(model)
-    kwta_scheduler = KWTAScheduler(model=model, step_size=3,
+    kwta_scheduler = KWTAScheduler(model=model, step_size=1,
                                    gamma_sparsity=0.7, min_sparsity=0.05,
-                                   gamma_hardness=2, max_hardness=10)
+                                   gamma_hardness=1.25, max_hardness=20)
     trainer = TrainerAutoencoderBinary(model,
                                        criterion=criterion,
                                        data_loader=data_loader,
@@ -172,8 +166,8 @@ def train_kwta_autoenc(dataset_cls=MNIST):
                                            cache=True
                                        ))
     # trainer.restore()
-    trainer.monitor.advanced_monitoring(level=MonitorLevel.FULL)
-    trainer.watch_modules = (KWinnersTakeAll,)
+    # trainer.monitor.advanced_monitoring(level=MonitorLevel.FULL)
+    # trainer.watch_modules = (KWinnersTakeAll,)
     trainer.train(n_epochs=40, mutual_info_layers=0)
 
 

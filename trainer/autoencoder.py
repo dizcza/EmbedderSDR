@@ -14,7 +14,7 @@ from mighty.trainer import TrainerAutoencoder
 from mighty.utils.common import input_from_batch, batch_to_cuda
 from mighty.utils.data import DataLoader
 from monitor.accuracy import AccuracyAutoencoderBinary
-from monitor.monitor import MonitorAutoencBinary
+from monitor.monitor import MonitorAutoencoderBinary
 from utils import dataset_mean
 from .kwta import InterfaceKWTA, KWTAScheduler
 
@@ -88,8 +88,8 @@ class TrainerAutoencoderBinary(InterfaceKWTA, TrainerAutoencoder):
         self.reconstruct = Reconstruct(reconstruct_threshold,
                                        dataset_mean(data_loader))
 
-    def _init_monitor(self, mutual_info) -> MonitorAutoencBinary:
-        monitor = MonitorAutoencBinary(
+    def _init_monitor(self, mutual_info) -> MonitorAutoencoderBinary:
+        monitor = MonitorAutoencoderBinary(
             accuracy_measure=self.accuracy_measure,
             mutual_info=mutual_info,
             normalize_inverse=self.data_loader.normalize_inverse

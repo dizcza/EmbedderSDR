@@ -1,8 +1,6 @@
 import numpy as np
-import torch
-import torch.utils.data
 
-from mighty.monitor import MonitorAutoenc, MonitorEmbedding
+from mighty.monitor.monitor import MonitorAutoencoder, MonitorEmbedding
 
 
 class MonitorEmbeddingKWTA(MonitorEmbedding):
@@ -30,7 +28,7 @@ class MonitorEmbeddingKWTA(MonitorEmbedding):
         self.viz.heatmap(clusters_sparsity.cpu(), win=win, opts=opts)
 
 
-class MonitorAutoencBinary(MonitorEmbeddingKWTA, MonitorAutoenc):
+class MonitorAutoencoderBinary(MonitorEmbeddingKWTA, MonitorAutoencoder):
 
     def plot_autoencoder_binary(self, images, reconstructed,
                                 reconstructed_binary, *tensors, labels=(),
