@@ -1,30 +1,19 @@
-import os
-
 import torch
 import torch.nn as nn
-import torchvision.models
 from torchvision import transforms
-from torchvision.datasets import MNIST, CIFAR10, FashionMNIST, Caltech256
-
-from PIL import Image
+from torchvision.datasets import MNIST, CIFAR10, Caltech256
 
 import models.caltech
 import models.cifar
 from mighty.loss import *
-from models import *
-from mighty.monitor.accuracy import AccuracyArgmax
-from monitor.accuracy import AccuracyEmbeddingKWTA, AccuracyAutoencoderBinary, \
-    AccuracyAutoencoder
-from mighty.monitor.monitor import Monitor
-from mighty.monitor.mutual_info import *
+from mighty.models import MLP
 from mighty.trainer import *
-from trainer import *
 from mighty.utils.common import set_seed
-from utils.constants import IMAGES_DIR
+from mighty.utils.data import DataLoader, TransformDefault
 from mighty.utils.domain import MonitorLevel
-from mighty.utils.data import NormalizeInverse, DataLoader, TransformDefault
-from mighty.utils.hooks import DumpActivationsHook
-from mighty.utils.stub import OptimizerStub
+from models import *
+from monitor.accuracy import AccuracyEmbeddingKWTA, AccuracyAutoencoderBinary
+from trainer import *
 
 
 def get_optimizer_scheduler(model: nn.Module):
@@ -91,58 +80,6 @@ def train_autoenc(n_epoch=60, dataset_cls=MNIST):
     trainer.train(n_epochs=n_epoch, mutual_info_layers=0)
 
 
-def test_matching_pursuit_lambdas(dataset_cls=MNIST):
-    # TODO move to a separate repo
-    model = MatchingPursuit(784, 2048)
-    data_loader = DataLoader(dataset_cls,
-                             transform=TransformDefault.mnist(
-                                 normalize=None
-                             ))
-    bmp_lambdas = torch.linspace(0.05, 0.95, steps=10)
-    trainer = TestMatchingPursuitParameters(model,
-                                            criterion=nn.MSELoss(),
-                                            data_loader=data_loader,
-                                            bmp_params_range=bmp_lambdas,
-                                            param_name='lambda')
-    trainer.train(n_epochs=1, mutual_info_layers=0)
-
-
-def test_binary_matching_pursuit_sparsity(dataset_cls=MNIST):
-    kwta = KWinnersTakeAll(sparsity=None)  # sparsity is a variable param
-    model = BinaryMatchingPursuit(784, 2048, kwta=kwta)
-    data_loader = DataLoader(dataset_cls,
-                             transform=TransformDefault.mnist(
-                                 normalize=None
-                             ))
-    bmp_sparsity = torch.linspace(0.005, 0.25, steps=2)
-    trainer = TestMatchingPursuitParameters(model,
-                                            criterion=nn.MSELoss(),
-                                            data_loader=data_loader,
-                                            bmp_params_range=bmp_sparsity,
-                                            param_name='sparsity')
-    trainer.train(n_epochs=1, mutual_info_layers=0)
-
-
-def train_matching_pursuit(dataset_cls=MNIST):
-    model = MatchingPursuit(784, 256, lamb=0.2)
-    data_loader = DataLoader(dataset_cls,
-                             transform=TransformDefault.mnist(
-                                 normalize=None
-                             ))
-    criterion = LossPenalty(nn.MSELoss(), lambd=model.lambd)
-    optimizer, scheduler = get_optimizer_scheduler(model)
-    trainer = TrainerAutoencoderBinary(model,
-                                       criterion=criterion,
-                                       data_loader=data_loader,
-                                       optimizer=optimizer,
-                                       scheduler=scheduler,
-                                       accuracy_measure=AccuracyAutoencoder(
-                                           cache=True
-                                       ))
-    # trainer.monitor.advanced_monitoring(level=MonitorLevel.FULL)
-    trainer.train(n_epochs=10, mutual_info_layers=0)
-
-
 def train_kwta_autoenc(dataset_cls=MNIST):
     kwta = KWinnersTakeAllSoft(sparsity=0.05, hardness=2)
     model = AutoencoderLinearKWTA(196, 2048, kwta)
@@ -169,20 +106,6 @@ def train_kwta_autoenc(dataset_cls=MNIST):
     # trainer.monitor.advanced_monitoring(level=MonitorLevel.FULL)
     # trainer.watch_modules = (KWinnersTakeAll,)
     trainer.train(n_epochs=40, mutual_info_layers=0)
-
-
-def test_binary_matching_pursuit(dataset_cls=MNIST):
-    kwta = KWinnersTakeAll(sparsity=0.1)
-    model = BinaryMatchingPursuit(784, 2048, kwta=kwta)
-    data_loader = DataLoader(dataset_cls,
-                             transform=TransformDefault.mnist(
-                                 normalize=None
-                             ))
-    trainer = TestMatchingPursuit(model,
-                                  criterion=nn.MSELoss(),
-                                  data_loader=data_loader,
-                                  optimizer=OptimizerStub())
-    trainer.train(n_epochs=1, mutual_info_layers=0)
 
 
 def test(model, n_epoch=500, dataset_cls=MNIST):
@@ -277,8 +200,6 @@ if __name__ == '__main__':
     set_seed(26)
     # torch.backends.cudnn.benchmark = True
     # train_lista()
-    # test_binary_matching_pursuit()
-    # train_matching_pursuit()
     train_kwta_autoenc()
     # train_autoenc()
     # dump_activations()
