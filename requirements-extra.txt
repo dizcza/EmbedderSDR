@@ -1,6 +1,0 @@
-# IDTxl
-git+https://github.com/pwollstadt/IDTxl.git
-JPype1>=0.6.3
-pyopencl>=2018.2.5
-h5py>=2.8.0  # requires libhdf5-dev
-networkx>=2.3
