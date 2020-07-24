@@ -118,6 +118,7 @@ class InterfaceKWTA(Trainer):
 
         self.kwta_scheduler = kwta_scheduler
         self._update_accuracy_state()
+        self._post_init_monitor()
 
     def has_kwta(self) -> bool:
         return len(self.kwta_layers) > 0
@@ -174,6 +175,9 @@ class InterfaceKWTA(Trainer):
             normalize_inverse=self.data_loader.normalize_inverse
         )
 
+        return monitor
+
+    def _post_init_monitor(self):
         # hack Monitor clusters_heatmap() and update_sparsity() functions
         sparsities = tuple(kwta.sparsity for kwta in self.kwta_layers)
         if all(isinstance(sparsity, float) for sparsity in sparsities):
@@ -182,9 +186,7 @@ class InterfaceKWTA(Trainer):
                 sparsity = next(iter(sparsities))
                 if np.isclose(sparsity, self.kwta_scheduler.min_sparsity):
                     # sparsity is not going to change, do nothing
-                    monitor.update_sparsity = lambda *args: None
-
-        return monitor
+                    self.monitor.update_sparsity = lambda *args, **kwargs: None
 
     def monitor_functions(self):
         super().monitor_functions()
