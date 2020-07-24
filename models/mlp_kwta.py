@@ -1,9 +1,8 @@
-import torch.nn as nn
-
+from mighty.models import MLP
 from .kwta import KWinnersTakeAll
 
 
-class MLP_kWTA(nn.Module):
+class MLP_kWTA(MLP):
     """
     Creates sequential fully-connected layers FC_1->FC_2->...->FC_N.
 
@@ -13,9 +12,8 @@ class MLP_kWTA(nn.Module):
         Fully connected sequential layer sizes.
     """
 
-    def __init__(self, fc1, fc2, kwta: KWinnersTakeAll):
-        super().__init__()
-        self.linear = nn.Linear(fc1, fc2, bias=False)
+    def __init__(self, *fc_sizes: int, kwta: KWinnersTakeAll):
+        super().__init__(*fc_sizes)
         self.kwta = kwta
 
     @property
@@ -24,15 +22,6 @@ class MLP_kWTA(nn.Module):
 
     def forward(self, x):
         x = x.flatten(start_dim=1)
-        x = self.linear(x)
+        x = self.mlp(x)
         x = self.kwta(x)
         return x
-
-
-class MLP_kWTA_Autoenc(MLP_kWTA):
-
-    def forward(self, x):
-        input_shape = x.shape
-        encoded = super().forward(x)
-        reconstructed = encoded.matmul(self.weight).view(*input_shape)
-        return encoded, reconstructed

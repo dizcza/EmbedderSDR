@@ -52,14 +52,14 @@ def squeezenet1_1(pretrained=True, kwta=None):
     classifier = [nn.Dropout(p=0.5), final_conv, nn.ReLU(inplace=True), nn.AvgPool2d(13, stride=1)]
     if kwta:
         classifier.append(kwta)
-    model.classifier = nn.Sequential(*classifier)
+    model.mlp = nn.Sequential(*classifier)
     return model
 
 
 def densenet121(pretrained=True, kwta=None):
     model = torchvision.models.densenet121(pretrained=pretrained)
     make_no_grad(model)
-    model.classifier = _classifier(in_features=1024, kwta=kwta)
+    model.mlp = _classifier(in_features=1024, kwta=kwta)
     return model
 
 
@@ -77,9 +77,9 @@ def vgg16(pretrained=True, kwta: KWinnersTakeAll = None, checkpoint: Path = None
     else:
         model = torchvision.models.vgg16(pretrained=pretrained)
     make_no_grad(model)
-    classifier = [*model.classifier]
+    classifier = [*model.mlp]
     last_layer = classifier.pop()  # 4096
     classifier.append(_classifier(in_features=last_layer.in_features, kwta=kwta))
     classifier = nn.Sequential(*classifier)
-    model.classifier = classifier
+    model.mlp = classifier
     return model
