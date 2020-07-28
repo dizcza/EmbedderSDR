@@ -30,34 +30,38 @@ Below is the list of ideas, taken from neuroscience and applied to deep learning
 
 ### Results
 
-Below is the comparison between the traditional softmax and kWTA activation functions for `EmbedderSDR` shallow model, trained on MNIST dataset with the same optimizer and learning rate for both regimes. Cross-entropy loss is used for softmax, and triplet loss - for kWTA.
+Below is the comparison between the traditional softmax and kWTA activation functions for `MLP_kWTA` shallow model, trained on MNIST dataset with the same optimizer and learning rate for both regimes. Cross-entropy loss is used for softmax, and triplet loss - for kWTA.
 
 ```
-EmbedderSDR(
-  (conv): Conv2d(1, 3, kernel_size=(3, 3), stride=(1, 1), bias=False)
-  (bn): BatchNorm2d(3, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
-  (relu1): ReLU(inplace)
-  (maxpool): MaxPool2d(kernel_size=3, stride=3, padding=0, dilation=1, ceil_mode=False)
-  (fc1): Linear(in_features=192, out_features=128, bias=False)
-  (relu2): ReLU(inplace)
-  (fc2): Linear(in_features=128, out_features=10, bias=False)
+MLP_kWTA(
+  (mlp): Sequential(
+    (0): Linear(in_features=784, out_features=64, bias=True)
+    (1): ReLU(inplace=True)
+    (2): Linear(in_features=64, out_features=512, bias=True)
+  )
+  (kwta): KWinnersTakeAllSoft(sparsity=0.05)
 )
 ```
 
-Traditional softmax:
+1. Traditional softmax.
 
-![](images/softmax.png)
+   In the traditional softmax model above the last activation function, kWTA, is replaced by ReLU.
 
-K-winners-take-all:
+   ![](images/softmax.png)
 
-![](images/kwta.png)
+2. K-winners-take-all.
 
-On the right plot, kWTA's output forms binary sparse distributed representation, averaged across samples for each class (label). Some neurons may respond to different patterns, but their ensemble activation uniquely encodes a stimulus (distributed coding).
+   The number of active neurons in the last layer with 512 neurons and kWTA activation function with the sparsity of 0.05 is `0.05 * 512 = 25`.
+
+   ![](images/kwta.png)
+
+   On the middle plot, the output of kWTA layer forms binary sparse distributed representation, averaged across samples for each class (label). Some neurons may respond to different patterns, but their ensemble activation uniquely encodes a stimulus (distributed coding).
+
+   On the right plot, the Mutual Information Plane ([Tishby et al., 2017](https://arxiv.org/abs/1703.00810)) shows the convergence of the training process.
 
 To reproduce the plots, call `train_kwta()` function in [`main.py`](main.py).
 
-For more results, go to [http://85.217.171.57:8097/](http://85.217.171.57:8097/). Give your browser a few minutes to parse the json data. Choose the environment with `TrainerGradKWTA` - this is the trainer with kWTA activation function.
-
+The complete infographics of the training progress is available on http://85.217.171.57:8097. Give your browser a few minutes to parse the json data. Choose _"2020.07.28 MLP-kWTA: MNIST TrainerEmbeddingKWTA TripletLoss"_ environment.
 
 ### Papers, used in the code
 

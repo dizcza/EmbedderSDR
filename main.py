@@ -29,6 +29,7 @@ def get_optimizer_scheduler(model: nn.Module):
                                                            patience=15,
                                                            threshold=1e-3,
                                                            min_lr=1e-4)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
     return optimizer, scheduler
 
 
@@ -119,7 +120,7 @@ def test(model, n_epoch=500, dataset_cls=MNIST):
 
 
 def train_kwta(n_epoch=500, dataset_cls=MNIST):
-    kwta = KWinnersTakeAllSoft(sparsity=0.05, hardness=4)
+    kwta = KWinnersTakeAllSoft(sparsity=0.05, hardness=2)
     # kwta = SynapticScaling(kwta, synaptic_scale=3)
     model = MLP_kWTA(784, 64, 256, kwta=kwta)
     optimizer, scheduler = get_optimizer_scheduler(model)
