@@ -11,8 +11,9 @@ from mighty.trainer import *
 from mighty.utils.common import set_seed
 from mighty.utils.data import DataLoader, TransformDefault
 from mighty.utils.domain import MonitorLevel
+from mighty.monitor.mutual_info import *
 from models import *
-from monitor.accuracy import AccuracyEmbeddingKWTA, AccuracyAutoencoderBinary
+from monitor.accuracy import AccuracyEmbeddingKWTA
 from trainer import *
 
 
@@ -32,7 +33,7 @@ def get_optimizer_scheduler(model: nn.Module):
 
 
 def train_grad(n_epoch=30, dataset_cls=MNIST):
-    model = MLP(784, 64, 10)
+    model = MLP(784, 128, 10)
     optimizer, scheduler = get_optimizer_scheduler(model)
     criterion = nn.CrossEntropyLoss()
     data_loader = DataLoader(dataset_cls,
@@ -73,7 +74,7 @@ def train_autoenc(n_epoch=60, dataset_cls=MNIST):
                                        scheduler=scheduler,
                                        kwta_scheduler=kwta_scheduler,
                                        reconstruct_threshold=reconstr_thr,
-                                       accuracy_measure=AccuracyAutoencoderBinary(
+                                       accuracy_measure=AccuracyEmbeddingKWTA(
                                            cache=model.encoding_dim <= 2048))
     # trainer.restore()  # uncomment to restore the saved state
     # trainer.monitor.advanced_monitoring(level=MonitorLevel.FULL)
@@ -82,11 +83,9 @@ def train_autoenc(n_epoch=60, dataset_cls=MNIST):
 
 def train_kwta_autoenc(dataset_cls=MNIST):
     kwta = KWinnersTakeAllSoft(sparsity=0.05, hardness=2)
-    model = AutoencoderLinearKWTA(196, 2048, kwta)
-    transform = transforms.Compose([transforms.Resize(14),
-                                    transforms.ToTensor()])
+    model = AutoencoderLinearKWTA(784, 2048, kwta)
     data_loader = DataLoader(dataset_cls,
-                             transform=transform,
+                             transform=transforms.ToTensor(),
                              eval_size=10000)
     criterion = nn.BCEWithLogitsLoss()
     optimizer, scheduler = get_optimizer_scheduler(model)
@@ -99,7 +98,7 @@ def train_kwta_autoenc(dataset_cls=MNIST):
                                        optimizer=optimizer,
                                        scheduler=scheduler,
                                        kwta_scheduler=kwta_scheduler,
-                                       accuracy_measure=AccuracyAutoencoderBinary(
+                                       accuracy_measure=AccuracyEmbeddingKWTA(
                                            cache=True
                                        ))
     # trainer.restore()
@@ -120,16 +119,16 @@ def test(model, n_epoch=500, dataset_cls=MNIST):
 
 
 def train_kwta(n_epoch=500, dataset_cls=MNIST):
-    kwta = KWinnersTakeAllSoft(sparsity=0.05)
+    kwta = KWinnersTakeAllSoft(sparsity=0.05, hardness=4)
     # kwta = SynapticScaling(kwta, synaptic_scale=3)
-    model = MLP_kWTA(784, 256, kwta)
+    model = MLP_kWTA(784, 64, 256, kwta=kwta)
     optimizer, scheduler = get_optimizer_scheduler(model)
     criterion = TripletLoss(metric='cosine')
     data_loader = DataLoader(dataset_cls,
                              transform=TransformDefault.mnist())
-    kwta_scheduler = KWTAScheduler(model=model, step_size=15,
+    kwta_scheduler = KWTAScheduler(model=model, step_size=10,
                                    gamma_sparsity=0.7, min_sparsity=0.05,
-                                   gamma_hardness=2, max_hardness=10)
+                                   gamma_hardness=2, max_hardness=20)
     trainer = TrainerEmbeddingKWTA(model=model,
                                    criterion=criterion,
                                    data_loader=data_loader,
@@ -199,11 +198,5 @@ def train_caltech(n_epoch=500, dataset_cls=Caltech256):
 if __name__ == '__main__':
     set_seed(26)
     # torch.backends.cudnn.benchmark = True
-    # train_lista()
-    train_kwta_autoenc()
-    # train_autoenc()
-    # dump_activations()
-    # train_grad()
-    # test()
-    # train_pretrained()
-    # train_caltech()
+    # train_kwta_autoenc()
+    train_kwta()

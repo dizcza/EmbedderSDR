@@ -1,4 +1,4 @@
-from mighty.monitor.accuracy import AccuracyEmbedding, AccuracyAutoencoder
+from mighty.monitor.accuracy import AccuracyEmbedding
 from models.kwta import KWinnersTakeAllFunction
 
 
@@ -16,7 +16,3 @@ class AccuracyEmbeddingKWTA(AccuracyEmbedding):
 
     def extra_repr(self):
         return f"{super().extra_repr()}, sparsity={self.sparsity}"
-
-
-class AccuracyAutoencoderBinary(AccuracyAutoencoder, AccuracyEmbeddingKWTA):
-    pass

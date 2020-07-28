@@ -13,7 +13,7 @@ from mighty.monitor.var_online import MeanOnlineBatch, SumOnlineBatch
 from mighty.trainer import TrainerAutoencoder
 from mighty.utils.common import input_from_batch, batch_to_cuda
 from mighty.utils.data import DataLoader
-from monitor.accuracy import AccuracyAutoencoderBinary
+from monitor.accuracy import AccuracyEmbeddingKWTA
 from monitor.monitor import MonitorAutoencoderBinary
 from utils import dataset_mean
 from .kwta import InterfaceKWTA, KWTAScheduler
@@ -75,7 +75,7 @@ class TrainerAutoencoderBinary(InterfaceKWTA, TrainerAutoencoder):
                  scheduler: Union[_LRScheduler, ReduceLROnPlateau] = None,
                  reconstruct_threshold: torch.Tensor = None,
                  kwta_scheduler: Optional[KWTAScheduler] = None,
-                 accuracy_measure: Accuracy = AccuracyAutoencoderBinary(),
+                 accuracy_measure: Accuracy = AccuracyEmbeddingKWTA(),
                  **kwargs):
         TrainerAutoencoder.__init__(self, model,
                                       criterion=criterion,
