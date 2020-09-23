@@ -1,3 +1,4 @@
 torch~=1.6.0
 torchvision~=0.7.0
--e git+git://github.com/dizcza/pytorch-mighty.git#egg=pytorch-mighty
+git+https://github.com/dizcza/pytorch-mighty.git#egg=pytorch-mighty
+
