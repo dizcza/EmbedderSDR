@@ -12,6 +12,16 @@ from utils.constants import SPARSITY
 from mighty.models.serialize import SerializableModule
 
 
+def compile_kwta(model: nn.Module):
+    for name, child in model.named_modules():
+        if isinstance(child, KWinnersTakeAllSoft):
+            assert child.sparsity is not None, \
+                "Only kWTA with fixed sparsity can be compiled"
+            child_compiled = KWinnersTakeAll(sparsity=child.sparsity)
+            setattr(model, name, child_compiled)
+        compile_kwta(child)
+
+
 class SparsityPredictor(nn.Module):
     def __init__(self, in_features: Union[int, None, str],
                  max_sparsity: float,

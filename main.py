@@ -6,7 +6,7 @@ from torchvision.datasets import MNIST, CIFAR10, Caltech256
 import models.caltech
 import models.cifar
 from mighty.loss import *
-from mighty.models import MLP
+from mighty.models import MLP, Flatten
 from mighty.trainer import *
 from mighty.utils.common import set_seed
 from mighty.utils.data import DataLoader, TransformDefault
@@ -43,7 +43,7 @@ def train_grad(n_epoch=30, dataset_cls=MNIST):
                           optimizer=optimizer, scheduler=scheduler)
     trainer.restore()  # uncomment to restore the saved state
     # trainer.monitor.advanced_monitoring(level=MonitorLevel.SIGNAL_TO_NOISE)
-    trainer.train(n_epochs=n_epoch, mutual_info_layers=0)
+    trainer.train(n_epochs=n_epoch)
 
 
 def train_autoenc(n_epoch=60, dataset_cls=MNIST):
@@ -79,7 +79,7 @@ def train_autoenc(n_epoch=60, dataset_cls=MNIST):
                                            cache=model.encoding_dim <= 2048))
     # trainer.restore()  # uncomment to restore the saved state
     # trainer.monitor.advanced_monitoring(level=MonitorLevel.FULL)
-    trainer.train(n_epochs=n_epoch, mutual_info_layers=0)
+    trainer.train(n_epochs=n_epoch)
 
 
 def train_kwta_autoenc(dataset_cls=MNIST):
@@ -105,7 +105,7 @@ def train_kwta_autoenc(dataset_cls=MNIST):
     # trainer.restore()
     # trainer.monitor.advanced_monitoring(level=MonitorLevel.FULL)
     # trainer.watch_modules = (KWinnersTakeAll,)
-    trainer.train(n_epochs=40, mutual_info_layers=0)
+    trainer.train(n_epochs=40)
 
 
 def test(model, n_epoch=500, dataset_cls=MNIST):
@@ -140,7 +140,6 @@ def train_kwta(n_epoch=500, dataset_cls=MNIST):
                                        cache=True),
                                    env_suffix='')
     # trainer.restore()
-    #trainer.monitor.advanced_monitoring(level=MonitorLevel.FULL)
     trainer.train(n_epochs=n_epoch, mutual_info_layers=1)
 
 
@@ -193,11 +192,10 @@ def train_caltech(n_epoch=500, dataset_cls=Caltech256):
         trainer = TrainerGrad(model=model, criterion=criterion,
                               data_loader=data_loader, optimizer=optimizer,
                               scheduler=scheduler)
-    trainer.train(n_epochs=n_epoch, mutual_info_layers=0, mask_explain=False)
+    trainer.train(n_epochs=n_epoch, mask_explain=False)
 
 
 if __name__ == '__main__':
     set_seed(26)
     # torch.backends.cudnn.benchmark = True
-    # train_kwta_autoenc()
-    train_kwta()
+    train_kwta_autoenc()

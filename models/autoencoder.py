@@ -3,6 +3,7 @@ from typing import Iterable, Union
 import torch.nn as nn
 
 from models import KWinnersTakeAll
+from mighty.models import AutoencoderOutput, Flatten
 
 
 class AutoencoderLinearKWTA(nn.Module):
@@ -26,24 +27,23 @@ class AutoencoderLinearKWTA(nn.Module):
             encoder.append(kwta)
         else:
             encoder.append(nn.ReLU(inplace=True))
-        self.encoder = nn.Sequential(*encoder)
+        self.encoder = nn.Sequential(Flatten(), *encoder)
 
         self.decoder = nn.Linear(encoding_dim, input_dim[0])
 
     def forward(self, x):
         input_shape = x.shape
-        x = x.flatten(start_dim=1)
         encoded = self.encoder(x)
         decoded = self.decoder(encoded)
         decoded = decoded.view(*input_shape)
-        return encoded, decoded
+        return AutoencoderOutput(encoded, decoded)
 
 
 class AutoencoderLinearKWTATanh(AutoencoderLinearKWTA):
     def forward(self, x):
         encoded, decoded = super().forward(x)
         decoded = decoded.tanh()
-        return encoded, decoded
+        return AutoencoderOutput(encoded, decoded)
 
 
 class AutoencoderConvKWTA(nn.Module):
@@ -78,4 +78,4 @@ class AutoencoderConvKWTA(nn.Module):
         encoded = self.encoder(x)
         decoded = self.decoder(encoded)
         decoded = decoded.view(*input_shape)
-        return encoded, decoded
+        return AutoencoderOutput(encoded, decoded)

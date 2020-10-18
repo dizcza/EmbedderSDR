@@ -178,7 +178,10 @@ class InterfaceKWTA(Trainer):
         return monitor
 
     def _post_init_monitor(self):
-        # hack Monitor clusters_heatmap() and update_sparsity() functions
+        # hack Monitor update_sparsity() function
+        if self.kwta_scheduler is None:
+            self.monitor.update_sparsity = lambda *args, **kwargs: None
+            return
         sparsities = tuple(kwta.sparsity for kwta in self.kwta_layers)
         if all(isinstance(sparsity, float) for sparsity in sparsities):
             sparsities = set(sparsities)
