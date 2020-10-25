@@ -9,7 +9,7 @@ import torch.nn.functional as F
 
 from mighty.monitor.var_online import MeanOnlineBatch
 from utils.constants import SPARSITY
-from utils.layers import SerializableModule
+from mighty.models.serialize import SerializableModule
 
 
 class SparsityPredictor(nn.Module):

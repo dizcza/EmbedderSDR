@@ -120,11 +120,11 @@ def test(model, n_epoch=500, dataset_cls=MNIST):
 
 
 def train_kwta(n_epoch=500, dataset_cls=MNIST):
-    kwta = KWinnersTakeAllSoft(sparsity=0.05, hardness=2)
+    kwta = KWinnersTakeAllSoft(sparsity=0.05, hard=False, hardness=2)
     # kwta = SynapticScaling(kwta, synaptic_scale=3)
     model = MLP_kWTA(784, 64, 256, kwta=kwta)
     optimizer, scheduler = get_optimizer_scheduler(model)
-    criterion = TripletLoss(metric='cosine')
+    criterion = TripletLossSampler(TripletCosineLoss(margin=0.5))
     data_loader = DataLoader(dataset_cls,
                              transform=TransformDefault.mnist())
     kwta_scheduler = KWTAScheduler(model=model, step_size=10,
@@ -140,8 +140,8 @@ def train_kwta(n_epoch=500, dataset_cls=MNIST):
                                        cache=True),
                                    env_suffix='')
     # trainer.restore()
-    trainer.monitor.advanced_monitoring(level=MonitorLevel.FULL)
-    trainer.train(n_epochs=n_epoch, mutual_info_layers=0)
+    #trainer.monitor.advanced_monitoring(level=MonitorLevel.FULL)
+    trainer.train(n_epochs=n_epoch, mutual_info_layers=1)
 
 
 def train_pretrained(n_epoch=500, dataset_cls=CIFAR10):
@@ -151,7 +151,7 @@ def train_pretrained(n_epoch=500, dataset_cls=CIFAR10):
     kwta = KWinnersTakeAllSoft(sparsity=0.3)
     model.classifier = nn.Sequential(nn.Linear(1024, 128, bias=False), kwta)
     optimizer, scheduler = get_optimizer_scheduler(model)
-    criterion = ContrastiveLossRandom(metric='cosine')
+    criterion = ContrastiveLossSampler(nn.CosineEmbeddingLoss(margin=0.5))
     data_loader = DataLoader(dataset_cls,
                              transform=TransformDefault.cifar10())
     kwta_scheduler = KWTAScheduler(model=model, step_size=15,
@@ -177,7 +177,7 @@ def train_caltech(n_epoch=500, dataset_cls=Caltech256):
     model = models.caltech.resnet18(kwta=kwta)
     data_loader = DataLoader(dataset_cls)
     if kwta:
-        criterion = ContrastiveLossRandom(metric='cosine')
+        criterion = ContrastiveLossSampler(nn.CosineEmbeddingLoss(margin=0.5))
         optimizer, scheduler = get_optimizer_scheduler(model)
         kwta_scheduler = KWTAScheduler(model=model, step_size=15,
                                        gamma_sparsity=0.7, min_sparsity=0.05,
