@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from torchvision import transforms
-from torchvision.datasets import MNIST, CIFAR10, Caltech256
+from torchvision.datasets import MNIST, CIFAR10
 
 import models.caltech
 import models.cifar
@@ -15,6 +15,7 @@ from mighty.monitor.mutual_info import *
 from models import *
 from monitor.accuracy import AccuracyEmbeddingKWTA
 from trainer import *
+from utils.caltech import Caltech10
 
 
 def get_optimizer_scheduler(model: nn.Module):
@@ -116,7 +117,7 @@ def test(model, n_epoch=500, dataset_cls=MNIST):
     data_loader = DataLoader(dataset_cls,
                              transform=TransformDefault.mnist())
     trainer = Test(model=model, criterion=criterion, data_loader=data_loader)
-    trainer.train(n_epochs=n_epoch, adversarial=True, mask_explain=True)
+    trainer.train(n_epochs=n_epoch)
 
 
 def train_kwta(n_epoch=500, dataset_cls=MNIST):
@@ -164,35 +165,34 @@ def train_pretrained(n_epoch=500, dataset_cls=CIFAR10):
                                kwta_scheduler=kwta_scheduler,
                                accuracy_measure=AccuracyEmbeddingKWTA(),
                                env_suffix='')
-    trainer.train(n_epochs=n_epoch, mutual_info_layers=1, mask_explain=False)
+    trainer.train(n_epochs=n_epoch, mutual_info_layers=1)
 
 
-def train_caltech(n_epoch=500, dataset_cls=Caltech256):
+def train_caltech(n_epoch=500, dataset_cls=Caltech10):
     dataset_name = dataset_cls.__name__
     models.caltech.set_out_features(key='softmax',
                                     value=int(dataset_name.lstrip("Caltech")))
-    kwta = None
-    kwta = KWinnersTakeAllSoft(sparsity=0.3)
+    kwta = KWinnersTakeAllSoft(sparsity=0.05)
     model = models.caltech.resnet18(kwta=kwta)
     data_loader = DataLoader(dataset_cls)
     if kwta:
         criterion = ContrastiveLossSampler(nn.CosineEmbeddingLoss(margin=0.5))
         optimizer, scheduler = get_optimizer_scheduler(model)
-        kwta_scheduler = KWTAScheduler(model=model, step_size=15,
+        kwta_scheduler = KWTAScheduler(model=model, step_size=10,
                                        gamma_sparsity=0.7, min_sparsity=0.05,
-                                       gamma_hardness=2, max_hardness=10)
-        trainer = TrainerEmbedding(model=model, criterion=criterion,
-                                   data_loader=data_loader,
-                                   optimizer=optimizer,
-                                   scheduler=scheduler,
-                                   kwta_scheduler=kwta_scheduler)
+                                       gamma_hardness=2, max_hardness=20)
+        trainer = TrainerEmbeddingKWTA(model=model, criterion=criterion,
+                                       data_loader=data_loader,
+                                       optimizer=optimizer,
+                                       scheduler=scheduler,
+                                       kwta_scheduler=kwta_scheduler)
     else:
         criterion = nn.CrossEntropyLoss()
         optimizer, scheduler = get_optimizer_scheduler(model)
         trainer = TrainerGrad(model=model, criterion=criterion,
                               data_loader=data_loader, optimizer=optimizer,
                               scheduler=scheduler)
-    trainer.train(n_epochs=n_epoch, mask_explain=False)
+    trainer.train(n_epochs=n_epoch)
 
 
 if __name__ == '__main__':
