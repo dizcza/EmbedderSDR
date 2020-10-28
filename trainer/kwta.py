@@ -16,7 +16,6 @@ from mighty.utils.prepare import prepare_eval
 from models.kwta import KWinnersTakeAllSoft, KWinnersTakeAll, \
     SynapticScaling, SparsityPredictor
 from monitor.accuracy import AccuracyEmbeddingKWTA
-from monitor.monitor import MonitorEmbeddingKWTA
 
 
 class KWTAScheduler:
@@ -167,15 +166,6 @@ class InterfaceKWTA(Trainer):
             # is started, but it's fine
             sparsity = self.online['sparsity'].get_mean()
         self.accuracy_measure.sparsity = sparsity
-
-    def _init_monitor(self, mutual_info):
-        monitor = MonitorEmbeddingKWTA(
-            accuracy_measure=self.accuracy_measure,
-            mutual_info=mutual_info,
-            normalize_inverse=self.data_loader.normalize_inverse
-        )
-
-        return monitor
 
     def _post_init_monitor(self):
         # hack Monitor update_sparsity() function

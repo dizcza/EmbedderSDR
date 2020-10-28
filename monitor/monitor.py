@@ -1,34 +1,9 @@
 import numpy as np
 
-from mighty.monitor.monitor import MonitorAutoencoder, MonitorEmbedding
+from mighty.monitor.monitor import MonitorAutoencoder
 
 
-class MonitorEmbeddingKWTA(MonitorEmbedding):
-
-    def clusters_heatmap(self, mean, std, save=False):
-        if mean is None:
-            return
-        super().clusters_heatmap(mean, std, save)
-        clusters_sparsity = mean.abs().mean(dim=1)  # (C,)
-        clusters_sparsity.unsqueeze_(dim=1)
-
-        n_classes = mean.shape[0]
-        win = "Clusters L1 sparsity"
-        opts = dict(
-            title=win,
-            ylabel='Label',
-            rownames=list(map(str, range(n_classes))),
-            columnnames=[''],
-            width=200,
-            height=None,
-        )
-        if n_classes <= self.n_classes_format_ytickstep_1:
-            opts.update(ytickstep=1)
-
-        self.viz.heatmap(clusters_sparsity.cpu(), win=win, opts=opts)
-
-
-class MonitorAutoencoderBinary(MonitorEmbeddingKWTA, MonitorAutoencoder):
+class MonitorAutoencoderBinary(MonitorAutoencoder):
 
     def plot_autoencoder_binary(self, images, reconstructed,
                                 reconstructed_binary, *tensors, labels=(),
