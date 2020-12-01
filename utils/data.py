@@ -1,10 +1,10 @@
 from torchvision.datasets import MNIST
 from tqdm import tqdm
 
-from mighty.monitor.var_online import MeanOnline
-from mighty.utils.algebra import compute_sparsity
 from mighty.utils.common import input_from_batch
 from mighty.utils.data import DataLoader
+from mighty.utils.signal import compute_sparsity
+from mighty.utils.var_online import MeanOnline
 
 
 def dataset_mean(data_loader: DataLoader, verbose=True):

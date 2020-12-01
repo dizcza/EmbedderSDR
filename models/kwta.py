@@ -7,7 +7,7 @@ import torch.distributions
 import torch.nn as nn
 import torch.nn.functional as F
 
-from mighty.monitor.var_online import MeanOnlineBatch
+from mighty.utils.var_online import MeanOnlineBatch
 from utils.constants import SPARSITY
 from mighty.models.serialize import SerializableModule
 

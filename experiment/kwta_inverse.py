@@ -5,13 +5,12 @@ import torch.utils.data
 import torchvision
 import torchvision.transforms.functional as F
 from PIL import Image
-from mighty.monitor.var_online import MeanOnline
-from mighty.monitor.viz import VisdomMighty
-from mighty.utils.data import DataLoader, get_normalize_inverse
-from torchvision import transforms
 from torchvision.datasets import MNIST
-from tqdm import tqdm
 
+from mighty.monitor.viz import VisdomMighty
+from mighty.utils.data import DataLoader
+from mighty.utils.data.transforms_default import TransformDefault
+from mighty.utils.var_online import MeanOnline
 from models.kwta import KWinnersTakeAllFunction
 from utils.algebra import factors_root
 
@@ -30,10 +29,8 @@ def undo_normalization(images_normalized, normalize_inverse):
 
 
 def kwta_inverse(embedding_dim=10000, sparsity=0.05, dataset_cls=MNIST):
-    normalize = transforms.Normalize(mean=(0.1307,), std=(0.3081,))
-    loader = DataLoader(dataset_cls, normalize=normalize)
-    normalize_inverse = get_normalize_inverse(loader.dataset.transform)
-    images, labels = next(iter(loader))
+    loader = DataLoader(dataset_cls, transform=TransformDefault.mnist(), batch_size=32)
+    images, labels = loader.sample()
     batch_size, channels, height, width = images.shape
     images_binary = (images > 0).type(torch.float32)
     sparsity_input = images_binary.mean()
@@ -48,18 +45,17 @@ def kwta_inverse(embedding_dim=10000, sparsity=0.05, dataset_cls=MNIST):
     kwta_embeddings = kwta_embeddings.view(batch_size, channels, *factors_root(embedding_dim))
     restored = restored.view_as(images)
 
-    images = undo_normalization(images, normalize_inverse)
+    images = undo_normalization(images, loader.normalize_inverse)
 
     viz = VisdomMighty(env="kWTA inverse")
-    transform = torchvision.transforms.Compose([torchvision.transforms.ToPILImage(),
-                                                torchvision.transforms.Resize(size=128, interpolation=Image.NEAREST),
-                                                torchvision.transforms.ToTensor()])
+    resize = torchvision.transforms.Resize(size=128, interpolation=Image.NEAREST)
     transformed_images = []
     for orig, kwta, restored in zip(images, kwta_embeddings, restored):
-        transformed_images.append(transform(orig))
-        transformed_images.append(transform(kwta))
-        transformed_images.append(transform(restored))
-    transformed_images = torch.stack(transformed_images, dim=0)
+        transformed_images.append(resize(orig))
+        transformed_images.append(resize(kwta))
+        transformed_images.append(resize(restored))
+    transformed_images = torch.stack(transformed_images, dim=0)  # (3*B, 1, 128, 128)
+    print(transformed_images.shape)
     viz.images(transformed_images, win='images', nrow=3, opts=dict(
         title=f"Original | kWTA(n={embedding_dim}, sparsity={sparsity}) | Restored",
     ))
@@ -81,9 +77,8 @@ def calc_overlap(vec1, vec2):
 
 def kwta_translation_similarity(embedding_dim=10000, sparsity=0.05,
                                 translate=(1, 1), dataset_cls=MNIST):
-    normalize = transforms.Normalize(mean=(0.1307,), std=(0.3081,))
-    loader = DataLoader(dataset_cls, normalize=normalize)
-    images, labels = next(iter(loader))
+    loader = DataLoader(dataset_cls, transform=TransformDefault.mnist())
+    images, labels = loader.sample()
     images = (images > 0).type(torch.float32)
 
     images_translated = []
@@ -116,14 +111,13 @@ def kwta_translation_similarity(embedding_dim=10000, sparsity=0.05,
 
 
 def surfplot(dataset_cls=MNIST):
-    normalize = transforms.Normalize(mean=(0.1307,), std=(0.3081,))
-    loader = DataLoader(dataset_cls, normalize=normalize)
+    loader = DataLoader(dataset_cls, transform=TransformDefault.mnist(), eval_size=1000)
     logdim = torch.arange(8, 14)
     embedding_dimensions = torch.pow(2, logdim)
     sparsities = [0.001, 0.01, 0.05, 0.1, 0.3, 0.5, 0.75]
     overlap_running_mean = defaultdict(lambda: defaultdict(MeanOnline))
-    for images, labels in tqdm(loader, desc=f"kWTA inverse overlap surfplot "
-                                            f"({dataset_cls.__name__})"):
+    for images, labels in loader.eval(description=f"kWTA inverse overlap surfplot "
+                                                  f"({dataset_cls.__name__})"):
         if torch.cuda.is_available():
             images = images.cuda()
         images_binary = (images > 0).type(torch.float32).flatten(start_dim=2)

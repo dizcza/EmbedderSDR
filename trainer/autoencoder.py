@@ -9,9 +9,9 @@ from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
 from torch.optim.optimizer import Optimizer
 
 from mighty.monitor.accuracy import Accuracy
-from mighty.monitor.var_online import MeanOnlineBatch, SumOnlineBatch
+from mighty.utils.var_online import MeanOnlineBatch, SumOnlineBatch
 from mighty.trainer import TrainerAutoencoder
-from mighty.utils.common import input_from_batch, batch_to_cuda
+from mighty.utils.common import input_from_batch
 from mighty.utils.data import DataLoader
 from monitor.accuracy import AccuracyEmbeddingKWTA
 from monitor.monitor import MonitorAutoencoderBinary

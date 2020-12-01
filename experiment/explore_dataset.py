@@ -6,7 +6,7 @@ from torchvision import transforms
 from torchvision.datasets import MNIST
 from tqdm import tqdm
 
-from mighty.monitor.var_online import VarianceOnline
+from mighty.utils.var_online import VarianceOnline
 from mighty.utils.constants import DATA_DIR
 from mighty.utils.data import DataLoader
 
