@@ -12,7 +12,7 @@ from mighty.utils.data import DataLoader
 from mighty.utils.data.transforms_default import TransformDefault
 from mighty.utils.var_online import MeanOnline
 from models.kwta import KWinnersTakeAllFunction
-from utils.algebra import factors_root
+from utils.signal import factors_root
 
 
 def torch_to_matplotlib(image):

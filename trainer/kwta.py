@@ -8,7 +8,7 @@ from torch.optim.lr_scheduler import _LRScheduler, ReduceLROnPlateau
 from torch.optim.optimizer import Optimizer
 
 from mighty.trainer import TrainerEmbedding
-from mighty.trainer.mask import MaskTrainerIndex
+from mighty.trainer.mask import MaskTrainer
 from mighty.trainer.trainer import Trainer
 from mighty.utils.common import find_layers, find_named_layers, batch_to_cuda
 from mighty.utils.data import DataLoader
@@ -269,7 +269,7 @@ class InterfaceKWTA(Trainer):
         image, label = super().train_mask()
         if not self.has_kwta():
             return image, label
-        mask_trainer_kwta = MaskTrainerIndex(image_shape=image.shape)
+        mask_trainer_kwta = MaskTrainer(image_shape=image.shape)
         mode_saved = prepare_eval(self.model)
         with torch.no_grad():
             output = self.model(image.unsqueeze(dim=0))
