@@ -153,6 +153,7 @@ class KWinnersTakeAll(SerializableModule):
             return "sparsity='None'"
         elif isinstance(self.sparsity, float):
             return f"sparsity={self.sparsity:.3f}"
+        # SparsityPredictor repr will be shown by default because it's a module
         return ''
 
 
@@ -215,7 +216,7 @@ class KWinnersTakeAllSoft(KWinnersTakeAll):
     def extra_repr(self):
         return f"{super().extra_repr()}, " \
                f"threshold_size={self.threshold_size}, " \
-               f"hardness={self.hardness}".lstrip(', ')
+               f"hardness={self.hardness}, hard={self.hard}".lstrip(", ")
 
 
 class SynapticScaling(SerializableModule):
