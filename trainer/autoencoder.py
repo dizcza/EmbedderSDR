@@ -25,7 +25,7 @@ class Reconstruct:
             threshold = torch.linspace(0., 0.95, steps=10, dtype=torch.float32)
         if torch.cuda.is_available():
             threshold = threshold.cuda()
-        self.threshold = threshold.view(1, 1, -1)
+        self.threshold = threshold
         self.dataset_mean = dataset_mean
         self.is_fixed = False
         self.optimal_id = len(self.threshold) // 2
@@ -36,16 +36,14 @@ class Reconstruct:
                f", fixed_threshold={fixed_thr})"
 
     @property
-    def threshold_lowest(self):
-        return self.threshold.squeeze()[self.optimal_id]
+    def threshold_optimal(self):
+        return self.threshold[self.optimal_id]
 
     def fix_threshold(self, new_threshold: float):
         self.is_fixed = True
-        thresholds = set(self.threshold.squeeze().tolist())
-        thresholds.add(new_threshold)
-        thresholds = sorted(thresholds)
-        self.threshold = torch.tensor(thresholds, device=self.threshold.device)
-        self.optimal_id = thresholds.index(new_threshold)
+        self.threshold = torch.tensor([new_threshold],
+                                      device=self.threshold.device)
+        self.optimal_id = 0
 
     def compute(self, input: torch.Tensor, reconstructed: torch.Tensor):
         # input and reconstructed are of shape (B, C, H, W)
@@ -54,7 +52,8 @@ class Reconstruct:
             reconstructed = reconstructed.unsqueeze(dim=0)
         # update pixel error
         rec_flatten = reconstructed.view(reconstructed.shape[0], -1, 1)
-        rec_binary = rec_flatten >= self.threshold # (B, In, THR)
+        threshold = self.threshold.view(1, 1, -1)  # (B, In, THR)
+        rec_binary = rec_flatten >= threshold
         input_binary = input > self.dataset_mean
         input_binary = input_binary.view(input.shape[0], -1, 1)  # (B, In, 1)
         # (B, THR)
@@ -68,6 +67,7 @@ class Reconstruct:
 
 
 class TrainerAutoencoderBinary(InterfaceKWTA, TrainerAutoencoder):
+    best_score_type = "accuracy autoencoder"
 
     def __init__(self, model: nn.Module, criterion: nn.Module,
                  data_loader: DataLoader,
@@ -78,12 +78,12 @@ class TrainerAutoencoderBinary(InterfaceKWTA, TrainerAutoencoder):
                  accuracy_measure: Accuracy = AccuracyEmbeddingKWTA(),
                  **kwargs):
         TrainerAutoencoder.__init__(self, model,
-                                      criterion=criterion,
-                                      data_loader=data_loader,
-                                      optimizer=optimizer,
-                                      scheduler=scheduler,
-                                      accuracy_measure=accuracy_measure,
-                                      **kwargs)
+                                    criterion=criterion,
+                                    data_loader=data_loader,
+                                    optimizer=optimizer,
+                                    scheduler=scheduler,
+                                    accuracy_measure=accuracy_measure,
+                                    **kwargs)
         InterfaceKWTA.__init__(self, kwta_scheduler)
         self.reconstruct = Reconstruct(reconstruct_threshold,
                                        dataset_mean(data_loader))
@@ -137,29 +137,24 @@ class TrainerAutoencoderBinary(InterfaceKWTA, TrainerAutoencoder):
         self.reconstruct.update(self.online['pixel-error'].get_mean())
         self.monitor.plot_reconstruction_error(
             self.online['pixel-error'].get_mean(),
-            self.reconstruct.threshold.squeeze(),
+            self.reconstruct.threshold,
             self.reconstruct.optimal_id
         )
         for fold in ('train', 'test'):
             n_exact = self.online[f'reconstruct-exact-{fold}'].get_sum()
             n_total = self.online[f'reconstruct-exact-{fold}'].count
-            if fold == 'train':
+            if fold == 'train' and self.best_score_type == \
+                    TrainerAutoencoderBinary.best_score_type:
                 accuracy = n_exact / float(n_total)
-                self.update_best_score(accuracy,
-                                       score_type='accuracy autoencoder')
+                self.update_best_score(accuracy)
             self.monitor.plot_reconstruction_exact(n_exact=n_exact,
                                                    n_total=n_total,
                                                    mode=fold)
         super()._epoch_finished(loss)
 
-    def update_best_score(self, score, score_type=''):
-        if score_type == 'accuracy autoencoder' and score > self.best_score:
-            self.best_score = score
-            self.save(best=True)
-
     def _plot_autoencoder(self, batch, reconstructed, mode='train'):
         input = input_from_batch(batch)
-        thr_lowest = self.reconstruct.threshold_lowest
+        thr_lowest = self.reconstruct.threshold_optimal
         rec_binary = (reconstructed >= thr_lowest).float()
         self.monitor.plot_autoencoder_binary(input, reconstructed, rec_binary,
                                              mode=mode)

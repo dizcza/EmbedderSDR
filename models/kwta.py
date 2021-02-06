@@ -128,11 +128,13 @@ class KWinnersTakeAllFunction(torch.autograd.Function):
         return grad_output, None
 
 
-class KWinnersTakeAll(nn.Module):
+class KWinnersTakeAll(SerializableModule):
     """
     Non differentiable original k-winners-take-all activation function.
     It finds the top `k` units in a vector, sets them to one and the rest to zero.
     """
+
+    state_attr = ["sparsity"]
 
     def __init__(self, sparsity=SPARSITY):
         """
@@ -176,8 +178,10 @@ class KWinnersTakeAllSoft(KWinnersTakeAll):
                              "must be set, but not both.")
         super().__init__(sparsity=sparsity)
         self.threshold_size = threshold_size
+        self.state_attr = ["hardness", "hard"]
         if self.sparsity is not None:
             self.threshold = None
+            self.state_attr.append("sparsity")
         elif threshold_size is not None:
             self.sparsity = None
             if threshold_size == 'auto':

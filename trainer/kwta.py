@@ -64,11 +64,21 @@ class KWTAScheduler:
         return updated
 
     def state_dict(self):
+        # TODO: kwta scheduler epoch differs from the timer
         return {
             'epoch': self.epoch
         }
 
     def load_state_dict(self, state_dict: dict):
+        for layer in self.kwta_layers:
+            if isinstance(layer.sparsity, float) \
+                    and layer.sparsity < self.min_sparsity:
+                warnings.warn(f"Reset kWTA.sparsity ({layer.sparsity}) "
+                              f"to the minimum ({self.min_sparsity})")
+            if isinstance(layer, KWinnersTakeAllSoft) \
+                    and layer.hardness > self.max_hardness:
+                warnings.warn(f"Reset kWTA.hardness ({layer.hardness}) "
+                              f"to the maximum ({self.max_hardness})")
         if state_dict is not None:
             self.step(state_dict['epoch'])
 
