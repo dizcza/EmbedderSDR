@@ -143,8 +143,7 @@ class TrainerAutoencoderBinary(InterfaceKWTA, TrainerAutoencoder):
         for fold in ('train', 'test'):
             n_exact = self.online[f'reconstruct-exact-{fold}'].get_sum()
             n_total = self.online[f'reconstruct-exact-{fold}'].count
-            if fold == 'train' and self.best_score_type == \
-                    TrainerAutoencoderBinary.best_score_type:
+            if fold == 'train':
                 accuracy = n_exact / float(n_total)
                 self.update_best_score(accuracy)
             self.monitor.plot_reconstruction_exact(n_exact=n_exact,
