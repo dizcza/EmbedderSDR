@@ -272,7 +272,7 @@ class InterfaceKWTA(Trainer):
             if updated:
                 # save the activations heatmap before the update
                 self.monitor.clusters_heatmap(
-                    *self.online['clusters'].get_mean_std(),
+                    self.online['clusters'].get_mean(),
                     save=True)
         self._update_accuracy_state()
         super()._epoch_finished(loss)
