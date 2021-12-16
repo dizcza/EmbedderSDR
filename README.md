@@ -61,7 +61,7 @@ MLP_kWTA(
 
 To reproduce the plots, call `train_kwta()` function in [`main.py`](main.py).
 
-The complete infographics of the training progress is available on http://85.217.171.57:8097. Give your browser a few minutes to parse the json data. Choose _"2020.07.28 MLP-kWTA: MNIST TrainerEmbeddingKWTA TripletLoss"_ environment.
+The complete infographics of the training progress is available on http://visdom.kyivaigroup.com:8097/. Give your browser a few minutes to parse the json data. Choose _"2020.07.28 MLP-kWTA: MNIST TrainerEmbeddingKWTA TripletLoss"_ environment.
 
 ### Papers, used in the code
 
