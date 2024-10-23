@@ -134,66 +134,29 @@ class KWinnersTakeAll(SerializableModule):
     It finds the top `k` units in a vector, sets them to one and the rest to zero.
     """
 
-    state_attr = ["sparsity"]
+    state_attr = []
 
-    def __init__(self, sparsity=SPARSITY):
+    def __init__(self, sparsity=None, emb_size: Union[int, None, str] = None):
         """
-        :param sparsity: how many bits leave active
+        :param sparsity: how many bits leave active (fixed sparsity)
+        :param emb_size: embedding vector size (floating sparsity)
         """
         super().__init__()
+        if (sparsity is None and emb_size is None) or \
+                (sparsity is not None and emb_size is not None):
+            raise ValueError("Either 'sparsity' or 'emb_size' must be set but not both.")
         self.sparsity = sparsity
-
-    def forward(self, x: torch.Tensor):
-        assert self.sparsity is not None, "Set the sparsity during the init"
-        x = KWinnersTakeAllFunction.apply(x, self.sparsity)
-        return x
-
-    def extra_repr(self):
-        if self.sparsity is None:
-            return "sparsity='None'"
-        elif isinstance(self.sparsity, float):
-            return f"sparsity={self.sparsity:.3f}"
-        # SparsityPredictor repr will be shown by default because it's a module
-        return ''
-
-
-class KWinnersTakeAllSoft(KWinnersTakeAll):
-    """
-    Differentiable version of k-winners-take-all activation function.
-    Instead of a hard sign, it places the top `k` units of a vector on the right side of sigmod
-      and the rest - on the left side of sigmoid.
-    Hardness defines how well sigmoid resembles sign function.
-    """
-
-    def __init__(self, sparsity=None,
-                 threshold_size: Union[int, None, str] = None,
-                 hardness=1, hard=True):
-        """
-        :param sparsity: how many bits leave active
-        :param hardness: exponent power in sigmoid function;
-                         the larger the hardness, the closer sigmoid to the true kwta distribution.
-        """
-        if (sparsity is None and threshold_size is None) or \
-                (sparsity is not None and threshold_size is not None):
-            raise ValueError("Either 'sparsity' or 'threshold_size' "
-                             "must be set, but not both.")
-        super().__init__(sparsity=sparsity)
-        self.threshold_size = threshold_size
-        self.state_attr = ["hardness", "hard"]
+        self.threshold = emb_size
         if self.sparsity is not None:
-            self.threshold = None
             self.state_attr.append("sparsity")
-        elif threshold_size is not None:
-            self.sparsity = None
-            if threshold_size == 'auto':
-                self.threshold = 'auto'
-            else:
-                self.threshold = nn.Linear(in_features=threshold_size,
-                                           out_features=1, bias=False).weight
-        self.hardness = float(hardness)
-        self.hard = hard
+        elif emb_size != 'auto':
+            self.threshold = nn.Linear(in_features=emb_size, out_features=1, bias=False).weight
 
-    def forward(self, x: torch.Tensor):
+    def get_batch_threshold(self, x: torch.Tensor):
+        """
+        :param x: input tensor
+        :return: kwta threshold tensor
+        """
         if self.threshold is None:
             threshold = get_kwta_threshold(x, self.sparsity)
         else:
@@ -206,6 +169,41 @@ class KWinnersTakeAllSoft(KWinnersTakeAll):
                     self.threshold = self.threshold.cuda()
             shape = list(x.shape)[1:]
             threshold = self.threshold.view(shape)
+        return threshold
+
+    def forward(self, x: torch.Tensor):
+        threshold = self.get_batch_threshold(x)
+        return KWinnersTakeAllThresholdFunction.apply(x, threshold)
+
+    def extra_repr(self):
+        thr_str = self.threshold.shape if isinstance(self.threshold, torch.Tensor) else repr(self.threshold)
+        return f"sparsity={self.sparsity}, threshold={thr_str}"
+
+
+class KWinnersTakeAllSoft(KWinnersTakeAll):
+    """
+    Differentiable version of k-winners-take-all activation function.
+    Instead of a hard sign, it places the top `k` units of a vector on the right side of sigmod
+      and the rest - on the left side of sigmoid.
+    Hardness defines how well sigmoid resembles sign function.
+    """
+
+    def __init__(self, sparsity=None, emb_size: Union[int, None, str] = None, hardness=1, hard=True):
+        """
+        :param sparsity: how many bits leave active (fixed sparsity)
+        :param emb_size: embedding vector size (floating sparsity)
+        :param hardness: exponent power in sigmoid function;
+                         the larger the hardness, the closer sigmoid to the true kwta distribution.
+        :param hard:     F.hardsigmoid() if True and F.sigmoid() otherwise during training
+        """
+
+        super().__init__(sparsity=sparsity, emb_size=emb_size)
+        self.state_attr.extend(["hardness", "hard"])
+        self.hardness = float(hardness)
+        self.hard = hard
+
+    def forward(self, x: torch.Tensor):
+        threshold = self.get_batch_threshold(x)
         if self.training:
             x_scaled = self.hardness * (x - threshold)
             if self.hard:
@@ -214,9 +212,7 @@ class KWinnersTakeAllSoft(KWinnersTakeAll):
         return KWinnersTakeAllThresholdFunction.apply(x, threshold)
 
     def extra_repr(self):
-        return f"{super().extra_repr()}, " \
-               f"threshold_size={self.threshold_size}, " \
-               f"hardness={self.hardness}, hard={self.hard}".lstrip(", ")
+        return f"{super().extra_repr()}, hardness={self.hardness}, hard={self.hard}"
 
 
 class SynapticScaling(SerializableModule):

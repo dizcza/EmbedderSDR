@@ -10,7 +10,8 @@ class AutoencoderLinearKWTA(nn.Module):
     def __init__(self,
                  input_dim: Union[int, Iterable[int]],
                  encoding_dim: int,
-                 kwta: KWinnersTakeAll = None):
+                 kwta: KWinnersTakeAll = None,
+                 p_drop=0.25):
         super().__init__()
         self.encoding_dim = encoding_dim
         if isinstance(input_dim, int):
@@ -19,8 +20,10 @@ class AutoencoderLinearKWTA(nn.Module):
             input_dim = list(input_dim)
         encoder = []
         for in_features, out_features in zip(input_dim[:-1], input_dim[1:]):
+            encoder.append(nn.Dropout(p=p_drop))
             encoder.append(nn.Linear(in_features, out_features))
             encoder.append(nn.ReLU(inplace=True))
+        encoder.append(nn.Dropout(p=p_drop))
         encoder.append(nn.Linear(input_dim[-1],
                                  encoding_dim, bias=False))
         if kwta:
@@ -29,7 +32,7 @@ class AutoencoderLinearKWTA(nn.Module):
             encoder.append(nn.ReLU(inplace=True))
         self.encoder = nn.Sequential(Flatten(), *encoder)
 
-        self.decoder = nn.Linear(encoding_dim, input_dim[0])
+        self.decoder = nn.Sequential(nn.Dropout(p=p_drop), nn.Linear(encoding_dim, input_dim[0]))
 
     def forward(self, x):
         input_shape = x.shape
