@@ -3,7 +3,7 @@ from typing import Iterable, Union
 import torch.nn as nn
 
 from models import KWinnersTakeAll
-from mighty.models import AutoencoderOutput, Flatten
+from mighty.models import AutoencoderOutput, Flatten, DropConnect
 
 
 class AutoencoderLinearKWTA(nn.Module):
@@ -11,7 +11,7 @@ class AutoencoderLinearKWTA(nn.Module):
                  input_dim: Union[int, Iterable[int]],
                  encoding_dim: int,
                  kwta: KWinnersTakeAll = None,
-                 p_drop=0.25):
+                 p_drop=0.25, p_connect=0.25):
         super().__init__()
         self.encoding_dim = encoding_dim
         if isinstance(input_dim, int):
@@ -20,19 +20,30 @@ class AutoencoderLinearKWTA(nn.Module):
             input_dim = list(input_dim)
         encoder = []
         for in_features, out_features in zip(input_dim[:-1], input_dim[1:]):
-            encoder.append(nn.Dropout(p=p_drop))
-            encoder.append(nn.Linear(in_features, out_features))
+            if p_drop is not None and p_drop > 0:
+                encoder.append(nn.Dropout(p=p_drop))
+            linear = nn.Linear(in_features, out_features)
+            if p_connect is not None and p_connect > 0:
+                linear = DropConnect(linear, p=p_connect)
+            encoder.append(linear)
             encoder.append(nn.ReLU(inplace=True))
-        encoder.append(nn.Dropout(p=p_drop))
-        encoder.append(nn.Linear(input_dim[-1],
-                                 encoding_dim, bias=False))
+        if p_drop is not None and p_drop > 0:
+            encoder.append(nn.Dropout(p=p_drop))
+        linear = nn.Linear(input_dim[-1], encoding_dim, bias=False)
+        if p_connect is not None and p_connect > 0:
+            linear = DropConnect(linear, p=p_connect)
+        encoder.append(linear)
         if kwta:
             encoder.append(kwta)
         else:
             encoder.append(nn.ReLU(inplace=True))
         self.encoder = nn.Sequential(Flatten(), *encoder)
 
-        self.decoder = nn.Sequential(nn.Dropout(p=p_drop), nn.Linear(encoding_dim, input_dim[0]))
+        decoder = []
+        if p_drop is not None and p_drop > 0:
+            decoder.append(nn.Dropout(p=p_drop))
+        decoder.append(nn.Linear(encoding_dim, input_dim[0]))
+        self.decoder = nn.Sequential(*decoder)
 
     def forward(self, x):
         input_shape = x.shape
